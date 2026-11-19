@@ -1,0 +1,29 @@
+Plantilla,Componente,Cantidad,Unidad,Costo Unitario,Costo por Porción,Total Plantilla
+Almuerzo Saludable Estudiantil,PROTEINA,100,GR,0.0072,0.72,1.24
+Almuerzo Saludable Estudiantil,GUARNICION,50,GR,0.001,0.05,1.24
+Almuerzo Saludable Estudiantil,ARROZ,40,GR,0.003,0.12,1.24
+Almuerzo Saludable Estudiantil,ENSALADA,55,GR,0.002,0.11,1.24
+Almuerzo Saludable Estudiantil,FRUTA,37,GR,0.003,0.11,1.24
+Almuerzo Saludable Estudiantil,Salsas,3,GR,0.004,0.01,1.24
+Almuerzo Saludable Estudiantil,JUGO,8,ONZ,0.014,0.11,1.24
+Almuerzo Estudiantil Completo Especial,SOPA,10,ONZ,0.015,0.15,1.38
+Almuerzo Estudiantil Completo Especial,PROTEINA,100,GR,0.0072,0.72,1.38
+Almuerzo Estudiantil Completo Especial,GUARNICION,48,GR,0.001,0.05,1.38
+Almuerzo Estudiantil Completo Especial,ARROZ,41,GR,0.003,0.12,1.38
+Almuerzo Estudiantil Completo Especial,ENSALADA,42,GR,0.002,0.08,1.38
+Almuerzo Estudiantil Completo Especial,POSTRE MASA,45,GR,0.003,0.14,1.38
+Almuerzo Estudiantil Completo Especial,Salsas,3,GR,0.004,0.01,1.38
+Almuerzo Estudiantil Completo Especial,JUGO,8,ONZ,0.014,0.11,1.38
+Refrigerio prescolar/Primaria,PROTEÍNA,60,GR,0.0047,0.28,0.84
+Refrigerio prescolar/Primaria,GUARNICIÓN,40,GR,0.0036,0.14,0.84
+Refrigerio prescolar/Primaria,ENSALADA,15,GR,0.0064,0.10,0.84
+Refrigerio prescolar/Primaria,FRUTA,25,GR,0.0064,0.16,0.84
+Refrigerio prescolar/Primaria,JUGO,8,ONZ,0.02,0.16,0.84
+Almuerzo Completo Administrativos,SOPA,12,ONZ,0.015,0.18,1.44
+Almuerzo Completo Administrativos,PROTEINA,110,GR,0.0072,0.79,1.44
+Almuerzo Completo Administrativos,GUARNICION,60,GR,0.001,0.06,1.44
+Almuerzo Completo Administrativos,ARROZ,35,GR,0.003,0.11,1.44
+Almuerzo Completo Administrativos,ENSALADA,42,GR,0.002,0.08,1.44
+Almuerzo Completo Administrativos,POSTRE/masa o fruta,45,GR,0.0023,0.10,1.44
+Almuerzo Completo Administrativos,Salsas,2,GR,0.004,0.01,1.44
+Almuerzo Completo Administrativos,JUGO,8,ONZ,0.014,0.11,1.44

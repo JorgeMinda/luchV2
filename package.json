@@ -7,9 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test": "vitest run",
+    "check:supabase": "vite-node scripts/check-supabase-connection.ts",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.1",
     "@tailwindcss/vite": "^4.3.4",
     "framer-motion": "^14.9.0",
     "html5-qrcode": "^2.3.8",
@@ -17,7 +20,8 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "read-excel-file": "^9.3.15",
-    "tailwindcss": "^4.3.4"
+    "tailwindcss": "^4.3.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
@@ -27,6 +31,7 @@
     "oxlint": "^1.89.0",
     "typescript": "~7.0.2",
     "vite": "^8.3.5",
-    "vite-plugin-pwa": "^2.0.0"
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^3.2.7"
   }
 }

@@ -1,3 +1,6 @@
+import type { Money } from '../../../domain/value-objects/money'
+import { toDollars } from '../../../domain/value-objects/money'
+
 const costFormatter = new Intl.NumberFormat('es-EC', {
   style: 'currency',
   currency: 'USD',
@@ -16,13 +19,20 @@ const quantityFormatter = new Intl.NumberFormat('es-EC', {
   maximumFractionDigits: 4,
 })
 
-export function formatCostCurrency(amount: number): string {
-  return costFormatter.format(Number.isFinite(amount) ? amount : 0)
+/** Convierte un monto Money o dólares a número para formatear. */
+function toDollarsAmount(amount: number | Money): number {
+  return typeof amount === 'number' ? amount : toDollars(amount)
 }
 
-export function formatUnitCost(amount: number): string {
+export function formatCostCurrency(amount: number | Money): string {
+  const dollars = toDollarsAmount(amount)
+  return costFormatter.format(Number.isFinite(dollars) ? dollars : 0)
+}
+
+export function formatUnitCost(amount: number | Money): string {
+  const dollars = toDollarsAmount(amount)
   return unitCostFormatter.format(
-    Number.isFinite(amount) ? amount : 0,
+    Number.isFinite(dollars) ? dollars : 0,
   )
 }
 

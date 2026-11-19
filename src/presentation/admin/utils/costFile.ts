@@ -1,4 +1,5 @@
 import type { Dish, RecipeIngredient } from '../../../domain/entities'
+import { fromDollars } from '../../../domain/value-objects/money'
 import {
   normalizeDishName,
   getDishMatchKey,
@@ -297,7 +298,7 @@ function parseIngredientRow(
         row,
         columns.purchasePresentation,
       ),
-      purchasePrice: purchasePrice ?? 0,
+      purchasePrice: fromDollars(purchasePrice ?? 0),
       purchaseQuantity: purchaseQuantity ?? 1,
       recipeQuantity,
     },

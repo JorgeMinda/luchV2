@@ -4,6 +4,7 @@ import type { BalanceStatus } from '../../../domain/value-objects/balance'
 import { getBalanceStatus } from '../../../domain/value-objects/balance'
 import type { RecentConsumption } from '../data/parentPortalData'
 import { LUNCH_PRICE } from '../data/parentPortalData'
+import { toDollars } from '../../../domain/value-objects/money'
 import { formatCurrency } from '../../shared/utils/formatCurrency'
 
 const STATUS_STYLES: Record<
@@ -40,9 +41,11 @@ export function BalanceConsumptionSection({
   recentConsumptions,
   onShowQr,
 }: BalanceConsumptionSectionProps) {
-  const status = getBalanceStatus(student.balance)
+  const status = getBalanceStatus(toDollars(student.balance))
   const styles = STATUS_STYLES[status]
-  const lunchesRemaining = Math.floor(student.balance / LUNCH_PRICE)
+  const lunchesRemaining = Math.floor(
+    student.balance.cents / LUNCH_PRICE.cents,
+  )
 
   return (
     <div className="space-y-4">

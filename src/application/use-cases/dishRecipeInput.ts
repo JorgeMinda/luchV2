@@ -8,8 +8,8 @@ export function sanitizeRecipeIngredient(
 
   if (
     !name ||
-    !Number.isFinite(ingredient.purchasePrice) ||
-    ingredient.purchasePrice < 0 ||
+    !Number.isFinite(ingredient.purchasePrice.cents) ||
+    ingredient.purchasePrice.cents < 0 ||
     !Number.isFinite(ingredient.purchaseQuantity) ||
     ingredient.purchaseQuantity <= 0 ||
     !Number.isFinite(ingredient.recipeQuantity) ||
@@ -25,5 +25,6 @@ export function sanitizeRecipeIngredient(
     purchasePrice: ingredient.purchasePrice,
     purchaseQuantity: ingredient.purchaseQuantity,
     recipeQuantity: ingredient.recipeQuantity,
+    yieldPercentage: ingredient.yieldPercentage,
   }
 }

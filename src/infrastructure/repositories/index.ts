@@ -1,0 +1,7 @@
+export { LocalStorageDishRecipeRepository } from './LocalStorageDishRecipeRepository'
+export { LocalStorageDishRepository } from './LocalStorageDishRepository'
+export { LocalStorageIngredientRepository } from './LocalStorageIngredientRepository'
+export { LocalStorageMenuPlanRepository } from './LocalStorageMenuPlanRepository'
+export { LocalStorageStudentRepository } from './LocalStorageStudentRepository'
+export { LocalStoragePaymentRepository } from './LocalStoragePaymentRepository'
+export { LocalStorageConsumptionRepository } from './LocalStorageConsumptionRepository'

@@ -1,8 +1,10 @@
+import type { Money } from '../value-objects/money'
+
 export interface Student {
   id: string
   parentId: string
   name: string
   grade: string
-  balance: number
+  balance: Money
   qrCode: string
 }

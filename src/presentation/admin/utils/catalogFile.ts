@@ -1,4 +1,5 @@
 import type { Ingredient, IngredientStatus } from '../../../domain/entities'
+import { fromDollars, type Money } from '../../../domain/value-objects/money'
 import {
   downloadCsv,
   normalizeText,
@@ -11,7 +12,7 @@ export interface ParsedIngredientRow {
   category: string
   product: string
   presentation: string
-  cost: number | null
+  cost: Money | null
   rawCost: string
   status: IngredientStatus
   errors: string[]
@@ -184,7 +185,7 @@ function buildRows(
       presentation,
       cost:
         rawCost && Number.isFinite(parsedCost) && parsedCost >= 0
-          ? parsedCost
+          ? fromDollars(parsedCost)
           : null,
       rawCost,
       status,
@@ -209,7 +210,7 @@ export function toNewIngredient(
     category: row.category,
     product: row.product,
     presentation: row.presentation,
-    cost: row.cost ?? 0,
+    cost: row.cost ?? fromDollars(0),
     status: row.status,
   }
 }

@@ -1,4 +1,6 @@
 import type { DishRecipe, RecipeIngredient } from '../../domain/entities'
+import type { Money } from '../../domain/value-objects/money'
+import { fromDollars } from '../../domain/value-objects/money'
 import type {
   DishRecipeInput,
   DishRecipeRepository,
@@ -10,18 +12,28 @@ import {
 
 const STORAGE_KEY = 'lunch.dish-recipes.v1'
 
+function isMoneyLike(value: unknown): value is Money {
+  if (typeof value !== 'object' || value === null) return false
+  const cents = (value as Money).cents
+  return typeof cents === 'number' && Number.isFinite(cents)
+}
+
 function isRecipeIngredient(value: unknown): value is RecipeIngredient {
   if (typeof value !== 'object' || value === null) return false
 
   const candidate = value as Record<string, unknown>
+  const price = candidate.purchasePrice
+  const hasValidPrice =
+    (typeof price === 'number' &&
+      Number.isFinite(price) &&
+      price >= 0) ||
+    (isMoneyLike(price) && price.cents >= 0)
 
   return (
     typeof candidate.id === 'string' &&
     typeof candidate.name === 'string' &&
     typeof candidate.purchasePresentation === 'string' &&
-    typeof candidate.purchasePrice === 'number' &&
-    Number.isFinite(candidate.purchasePrice) &&
-    candidate.purchasePrice >= 0 &&
+    hasValidPrice &&
     typeof candidate.purchaseQuantity === 'number' &&
     Number.isFinite(candidate.purchaseQuantity) &&
     candidate.purchaseQuantity > 0 &&
@@ -29,6 +41,21 @@ function isRecipeIngredient(value: unknown): value is RecipeIngredient {
     Number.isFinite(candidate.recipeQuantity) &&
     candidate.recipeQuantity >= 0
   )
+}
+
+/** Convierte precios heredados (número en dólares) a Money. */
+function normalizeIngredient(
+  ingredient: RecipeIngredient,
+): RecipeIngredient {
+  const price: unknown = ingredient.purchasePrice
+  if (typeof price === 'number') {
+    return { ...ingredient, purchasePrice: fromDollars(price) }
+  }
+  return ingredient
+}
+
+function normalizeRecipe(recipe: DishRecipe): DishRecipe {
+  return { ...recipe, ingredients: recipe.ingredients.map(normalizeIngredient) }
 }
 
 function isDishRecipe(value: unknown): value is DishRecipe {
@@ -48,8 +75,9 @@ function isDishRecipe(value: unknown): value is DishRecipe {
 export class LocalStorageDishRecipeRepository
   implements DishRecipeRepository
 {
-  private recipes: DishRecipe[] =
+  private recipes: DishRecipe[] = (
     readStoredCollection(STORAGE_KEY, isDishRecipe) ?? []
+  ).map(normalizeRecipe)
 
   listSnapshot(): DishRecipe[] {
     return [...this.recipes]

@@ -19,7 +19,7 @@ function ingredientSignature(ingredient: RecipeIngredient): string {
   return [
     ingredient.name,
     ingredient.purchasePresentation,
-    ingredient.purchasePrice,
+    ingredient.purchasePrice.cents,
     ingredient.purchaseQuantity,
     ingredient.recipeQuantity,
   ].join('|')

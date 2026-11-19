@@ -1,3 +1,5 @@
+import type { Money } from '../value-objects/money'
+
 export type IngredientStatus = 'ACTIVO' | 'INACTIVO'
 
 export interface Ingredient {
@@ -6,6 +8,10 @@ export interface Ingredient {
   category: string
   product: string
   presentation: string
-  cost: number
+  cost: Money
+  /** Costo unitario de precisión sub-centavo (ej. 0.0072 USD/g). Se persiste como NUMERIC(12,6). */
+  purchaseUnitCostRaw?: number
+  /** Fórmula Excel original que generó el costo unitario (ej. "=C5/D5"). */
+  sourceFormula?: string
   status: IngredientStatus
 }

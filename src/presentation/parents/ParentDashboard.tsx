@@ -15,7 +15,6 @@ import {
   demoLunchesThisMonth,
   demoRecentConsumptions,
   demoStudent,
-  demoWeeklyMenu,
 } from './data/parentPortalData'
 import { formatCurrency } from '../shared/utils/formatCurrency'
 import { getInitials } from '../shared/utils/getInitials'
@@ -141,7 +140,7 @@ export function ParentDashboard() {
         className="mt-5"
         role="tabpanel"
       >
-        {activeTab === 'menu' && <WeeklyMenuSection days={demoWeeklyMenu} />}
+        {activeTab === 'menu' && <WeeklyMenuSection />}
 
         {activeTab === 'balance' && (
           <BalanceConsumptionSection

@@ -22,6 +22,7 @@ import {
   getIngredientUnitCost,
   getRecipeIngredientsTotalCost,
 } from '../../../domain/entities'
+import { fromCents, fromDollars, toDollars } from '../../../domain/value-objects/money'
 import { saveDishRecipeUseCase } from '../../../infrastructure/container'
 import { Modal } from '../../shared/Modal'
 import { getDishCategoryBadgeClass } from '../utils/dishCategories'
@@ -62,7 +63,7 @@ function toEditableIngredient(
     id: ingredient.id,
     name: ingredient.name,
     purchasePresentation: ingredient.purchasePresentation,
-    purchasePrice: String(ingredient.purchasePrice),
+    purchasePrice: String(toDollars(ingredient.purchasePrice)),
     purchaseQuantity: String(ingredient.purchaseQuantity),
     recipeQuantity: String(ingredient.recipeQuantity),
   }
@@ -86,7 +87,7 @@ function toCalculatedIngredient(
     id: ingredient.id,
     name: ingredient.name.trim(),
     purchasePresentation: ingredient.purchasePresentation.trim(),
-    purchasePrice: parseCostNumber(ingredient.purchasePrice) ?? 0,
+    purchasePrice: fromDollars(parseCostNumber(ingredient.purchasePrice) ?? 0),
     purchaseQuantity: parseQuantityNumber(ingredient.purchaseQuantity) ?? 0,
     recipeQuantity: parseQuantityNumber(ingredient.recipeQuantity) ?? 0,
   }
@@ -123,7 +124,9 @@ export function DishCostingModal({
   const [editableIngredients, setEditableIngredients] = useState<
     EditableIngredient[]
   >(() => (recipe?.ingredients ?? []).map(toEditableIngredient))
-  const totalCost = recipe ? getDishRecipeTotalCost(recipe) : 0
+  const totalCost = recipe
+    ? getDishRecipeTotalCost(recipe)
+    : fromCents(0)
   const editableTotalCost = getRecipeIngredientsTotalCost(
     editableIngredients.map(toCalculatedIngredient),
   )
