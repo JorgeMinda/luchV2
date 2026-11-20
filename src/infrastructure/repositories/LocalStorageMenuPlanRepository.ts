@@ -30,6 +30,10 @@ interface StoredMenuPlanCell {
   category: DishCategory
   slot?: number
   dishId: string
+  serviceType: 'lunch' | 'breakfast' | 'snack'
+  isActive: boolean
+  deletedAt?: string
+  deletedBy?: string
 }
 
 function isStoredMenuPlanCell(value: unknown): value is StoredMenuPlanCell {
@@ -45,7 +49,9 @@ function isStoredMenuPlanCell(value: unknown): value is StoredMenuPlanCell {
     (candidate.slot === undefined ||
       (typeof candidate.slot === 'number' &&
         Number.isInteger(candidate.slot) &&
-        candidate.slot >= 0))
+        candidate.slot >= 0)) &&
+    ['lunch', 'breakfast', 'snack'].includes(candidate.serviceType as string) &&
+    typeof candidate.isActive === 'boolean'
   )
 }
 
@@ -56,6 +62,10 @@ function normalizeCell(cell: StoredMenuPlanCell): MenuPlanCell {
     category: cell.category,
     slot: cell.slot ?? 0,
     dishId: cell.dishId,
+    serviceType: cell.serviceType,
+    isActive: cell.isActive,
+    deletedAt: cell.deletedAt,
+    deletedBy: cell.deletedBy,
   }
 }
 
@@ -85,9 +95,17 @@ export class LocalStorageMenuPlanRepository implements MenuPlanRepository {
   }
 
   async setCell(selection: MenuCellSelection): Promise<void> {
+    const newCell: MenuPlanCell = {
+      ...selection,
+      serviceType: 'lunch', // Default
+      isActive: true,
+      deletedAt: undefined,
+      deletedBy: undefined,
+    }
+
     this.cells = [
       ...this.cells.filter((cell) => !isSameCell(cell, selection)),
-      selection,
+      newCell,
     ]
     this.persist()
   }

@@ -1,5 +1,6 @@
 import type { ImportStatus } from '../value-objects/import-status'
 import type { SourceType } from '../value-objects/source-type'
+
 export interface ImportBatch {
   readonly id: string
   readonly fileName: string

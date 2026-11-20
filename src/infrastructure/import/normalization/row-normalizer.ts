@@ -37,13 +37,13 @@ export interface RawRow {
 }
 
 export function normalizeRows(rawRows: RawRow[], batchId: string): ImportedRow[] {
-  return rawRows.map((raw) => {
+  return rawRows.map((raw, index) => {
     const originalData: Record<string, unknown> = {}
     const normalizedData: Record<string, unknown> = {}
     const incidents: ImportIncident[] = []
 
-    raw.headers.forEach((header, index) => {
-      const value = String(raw.cells[index] ?? '').trim()
+    raw.headers.forEach((header, cellIndex) => {
+      const value = String(raw.cells[cellIndex] ?? '').trim()
       originalData[header] = value
 
       if (value === '') {
@@ -135,20 +135,37 @@ export function normalizeRows(rawRows: RawRow[], batchId: string): ImportedRow[]
       normalizedData[header] = normalizedValue
     })
 
-    const severity = incidents.some((i) => i.severity === 'ERROR')
-      ? 'ERROR'
+    const status = incidents.some((i) => i.severity === 'ERROR')
+      ? 'error'
       : incidents.some((i) => i.severity === 'WARNING')
-        ? 'WARNING'
-        : 'VALID'
+        ? 'warning'
+        : 'valid'
+
+    const severityMap: Record<typeof status, ImportedRow['severity']> = {
+      valid: 'VALID',
+      warning: 'WARNING',
+      error: 'ERROR',
+    }
 
     return {
+      id: `row-${batchId}-${index}`,
       batchId,
+      rowIndex: index,
       rowNumber: raw.rowNumber,
+      sheetName: raw.source,
+      sourceType: 'CATALOG',
+      rawData: originalData,
       originalData,
       normalizedData,
+      status,
+      severity: severityMap[status],
+      errorMessage: undefined,
+      warningMessages: undefined,
       incidents,
-      severity,
       entityType: 'ingredient',
+      provenance: undefined,
+      analysisVersion: undefined,
+      createdAt: new Date().toISOString(),
     }
   })
 }

@@ -26,5 +26,11 @@ export function sanitizeRecipeIngredient(
     purchaseQuantity: ingredient.purchaseQuantity,
     recipeQuantity: ingredient.recipeQuantity,
     yieldPercentage: ingredient.yieldPercentage,
+    purchaseUnitCostRaw: ingredient.purchaseUnitCostRaw,
+    sourceFormula: ingredient.sourceFormula,
+    sourceCell: ingredient.sourceCell,
+    isActive: true,
+    deletedAt: undefined,
+    deletedBy: undefined,
   }
 }

@@ -13,6 +13,14 @@ export interface RawCell {
   readonly type: RawCellType
   /** Texto formateado original cuando difiere del valor (ej. errores de fórmula). */
   readonly formatted?: string
+  /** Fórmula original de la celda (ej. "=A1+B1", "5*1.00") cuando existe. */
+  readonly formula?: string
+  /** Coordenada de la celda en notación A1 (ej. "E140", "J1079"). */
+  readonly sourceCell?: string
+  /** Nombre de la hoja de origen. */
+  readonly sourceSheet?: string
+  /** Nombre del archivo de origen. */
+  readonly sourceFile?: string
 }
 
 export interface RawSheetData {

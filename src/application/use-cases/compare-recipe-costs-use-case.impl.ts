@@ -9,13 +9,17 @@ import { InMemoryImportRowStore } from '../../infrastructure/import/batch/in-mem
 import { normalizeEntityName } from '../../infrastructure/import/normalization/entity-normalizer'
 
 function cellKey(row: ImportedRow): string {
-  const name = String(row.normalizedData.nombre ?? row.normalizedData.ingrediente ?? row.originalData.nombre ?? '')
-  const category = String(row.normalizedData.categoria ?? row.originalData.categoria ?? '')
+  const norm = row.normalizedData ?? {}
+  const orig = row.originalData ?? {}
+  const name = String(norm.nombre ?? norm.ingrediente ?? orig.nombre ?? '')
+  const category = String(norm.categoria ?? orig.categoria ?? '')
   return `${normalizeEntityName(category)}|${normalizeEntityName(name)}`
 }
 
 function numericOf(row: ImportedRow, field: string): number | null {
-  const value = row.normalizedData[field] ?? row.originalData[field]
+  const norm = row.normalizedData ?? {}
+  const orig = row.originalData ?? {}
+  const value = norm[field] ?? orig[field]
   if (value == null || value === '') return null
   const parsed = typeof value === 'number' ? value : parseFloat(String(value).replace('$', '').replace(',', '.'))
   return Number.isFinite(parsed) ? parsed : null
@@ -54,9 +58,9 @@ export class CompareRecipeCostsUseCaseImpl implements CompareRecipeCostsUseCase 
     const conflicts: RecipeCostComparisonOutput['conflicts'] = []
 
     for (const group of byKey.values()) {
-      const csvRow = group.find((r) => r.normalizedData.__source === 'csv') ?? group[0]
-      const compositionRow = group.find((r) => r.normalizedData.__source === 'composition') ?? null
-      const systemRow = group.find((r) => r.normalizedData.__source === 'system') ?? null
+      const csvRow = group.find((r) => r.normalizedData?.__source === 'csv') ?? group[0]
+      const compositionRow = group.find((r) => r.normalizedData?.__source === 'composition') ?? null
+      const systemRow = group.find((r) => r.normalizedData?.__source === 'system') ?? null
 
       const discrepancies: string[] = []
       const csvCost = numericOf(csvRow, 'costo')

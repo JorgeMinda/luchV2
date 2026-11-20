@@ -3,34 +3,46 @@ import type { ImportStatus } from '../../../domain/value-objects/import-status'
 import type { ImportBatchRepository } from '../../../application/ports/import-batch-repository'
 import { SupabaseRepositoryBase } from './SupabaseRepositoryBase'
 import type { TypedSupabaseClient } from './SupabaseRepositoryBase'
+import type { ImportBatchesRow, ImportBatchesInsert, ImportBatchesUpdate } from '../database.types'
+
+// Database uses lowercase status: 'pending' | 'analyzing' | 'preview' | 'committed' | 'failed'
+// Domain uses uppercase: 'ANALYZED' | 'APPROVED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'PARTIALLY_COMPLETED'
+
+type DbImportStatus = NonNullable<ImportBatchesInsert['status']>
+
+function toDbStatus(status: ImportStatus): DbImportStatus {
+  const map: Record<ImportStatus, DbImportStatus> = {
+    ANALYZED: 'committed',
+    APPROVED: 'committed',
+    PROCESSING: 'analyzing',
+    COMPLETED: 'committed',
+    FAILED: 'failed',
+    PARTIALLY_COMPLETED: 'committed',
+  }
+  return map[status]
+}
+
+function fromDbStatus(status: DbImportStatus | null | undefined): ImportStatus {
+  if (!status) return 'ANALYZED'
+  const map: Record<DbImportStatus, ImportStatus> = {
+    pending: 'ANALYZED',
+    analyzing: 'PROCESSING',
+    preview: 'ANALYZED',
+    committed: 'COMPLETED',
+    failed: 'FAILED',
+  }
+  return map[status] ?? 'ANALYZED'
+}
 
 /**
  * Mapea fila de BD a ImportBatch de dominio.
  */
-function mapRowToImportBatch(row: {
-  id: string
-  file_name: string
-  file_hash: string
-  status: ImportStatus
-  created_at: string
-  processed_at: string | null
-  total_rows: number
-  valid_rows: number
-  warning_rows: number
-  error_rows: number
-  approved_rows: number
-  rejected_rows: number
-  source_format: 'csv' | 'xlsx' | 'xls'
-  encoding: string | null
-  source_type: string | null
-  analysis_version: string | null
-  provenance: string | null
-}): ImportBatch {
+function mapRowToImportBatch(row: ImportBatchesRow): ImportBatch {
   return {
     id: row.id,
     fileName: row.file_name,
     fileHash: row.file_hash,
-    status: row.status,
+    status: fromDbStatus(row.status),
     createdAt: row.created_at,
     processedAt: row.processed_at ?? undefined,
     totalRows: row.total_rows,
@@ -49,7 +61,7 @@ function mapRowToImportBatch(row: {
 
 /**
  * Repositorio Supabase para ImportBatches.
- * Respeta RLS por school_id (F.1).
+ * Single-tenant (F.1): sin school_id, RLS por auth.uid() + role.
  */
 export class SupabaseImportBatchRepository
   extends SupabaseRepositoryBase
@@ -59,30 +71,24 @@ export class SupabaseImportBatchRepository
   }
 
   async save(batch: ImportBatch): Promise<void> {
-    const { error } = await this.client.from('import_batches').upsert(
-      {
-        id: batch.id,
-        file_name: batch.fileName,
-        file_hash: batch.fileHash,
-        status: batch.status,
-        created_at: batch.createdAt,
-        processed_at: batch.processedAt ?? null,
-        total_rows: batch.totalRows,
-        valid_rows: batch.validRows,
-        warning_rows: batch.warningRows,
-        error_rows: batch.errorRows,
-        approved_rows: batch.approvedRows,
-        rejected_rows: batch.rejectedRows,
-        source_format: batch.sourceFormat,
-        encoding: batch.encoding ?? null,
-        source_type: batch.sourceType ?? null,
-        analysis_version: batch.analysisVersion ?? null,
-        provenance: batch.provenance ?? null,
-      } as any,
-      { onConflict: 'id', ignoreDuplicates: false },
-    )
+    const insert: ImportBatchesInsert = {
+      file_name: batch.fileName,
+      file_hash: batch.fileHash,
+      status: toDbStatus(batch.status),
+      total_rows: batch.totalRows,
+      valid_rows: batch.validRows,
+      warning_rows: batch.warningRows,
+      error_rows: batch.errorRows,
+      approved_rows: batch.approvedRows,
+      rejected_rows: batch.rejectedRows,
+      source_format: batch.sourceFormat,
+      encoding: batch.encoding ?? null,
+      source_type: batch.sourceType ?? null,
+      analysis_version: batch.analysisVersion ?? null,
+      provenance: batch.provenance ?? null,
+    }
 
-    if (error) this.handleError(error, 'guardar lote de importación')
+    await this.upsertOne<ImportBatchesRow, ImportBatchesInsert>('import_batches', insert, { onConflict: 'file_hash', ignoreDuplicates: false })
   }
 
   async findById(id: string): Promise<ImportBatch | null> {
@@ -118,14 +124,11 @@ export class SupabaseImportBatchRepository
   }
 
   async updateStatus(id: string, status: ImportStatus): Promise<void> {
-    const { error } = await this.client
-      .from('import_batches')
-      .update({
-        status,
-        processed_at: status === 'COMPLETED' || status === 'FAILED' ? new Date().toISOString() : null,
-      } as never)
-      .eq('id', id)
+    const update: ImportBatchesUpdate = {
+      status: toDbStatus(status),
+      processed_at: status === 'COMPLETED' || status === 'FAILED' ? new Date().toISOString() : null,
+    }
 
-    if (error) this.handleError(error, 'actualizar estado de lote')
+    await this.updateRows<ImportBatchesUpdate>('import_batches', update, { id })
   }
 }

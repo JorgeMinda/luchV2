@@ -1,5 +1,5 @@
 /**
- * Tipos de base de datos generados desde el esquema Supabase (migraciones 001 + 002).
+ * Tipos de base de datos generados desde el esquema Supabase (migraciones 001 + 002) - Single-Tenant F.1
  * Estos tipos deben mantenerse sincronizados con las migraciones SQL.
  * En producción, usar `supabase gen types typescript --project-id <id>` o CLI local.
  */
@@ -38,36 +38,25 @@ export type MealCompositionComponentType =
   | 'SALSAS'
   | 'JUGO'
 export type PersistenceResult = 'pending' | 'success' | 'partial' | 'failed'
+export type ImportedRowStatus = 'valid' | 'warning' | 'error'
 export type UnitOfMeasure = 'g' | 'kg' | 'ml' | 'l' | 'un' | 'lb' | 'oz'
 
 // ============================================================
 // TABLAS PRINCIPALES
 // ============================================================
 
-export interface SchoolsRow {
+export interface UsersRow {
   id: string
-  name: string
-  code: string
-  address: string | null
-  phone: string | null
-  email: string | null
+  email: string
+  full_name: string | null
+  role: UserRole
   is_active: boolean
   created_at: string
   updated_at: string
 }
 
-export interface SchoolUsersRow {
-  id: string
-  school_id: string
-  user_id: string
-  role: UserRole
-  is_active: boolean
-  created_at: string
-}
-
 export interface IngredientsRow {
   id: string
-  school_id: string
   code: string
   category: string
   product: string
@@ -76,33 +65,40 @@ export interface IngredientsRow {
   purchase_unit_cost_raw: number | null
   source_formula: string | null
   status: IngredientStatus
+  is_active: boolean
+  deleted_at: string | null
+  deleted_by: string | null
   created_at: string
   updated_at: string
 }
 
 export interface DishesRow {
   id: string
-  school_id: string
   name: string
   category: DishCategory
   description: string
+  is_active: boolean
+  deleted_at: string | null
+  deleted_by: string | null
   created_at: string
   updated_at: string
 }
 
 export interface DishRecipesRow {
   id: string
-  school_id: string
   dish_id: string
   source: string
   service_type: ServiceType
   portions: number | null
+  is_active: boolean
+  deleted_at: string | null
+  deleted_by: string | null
+  created_at: string
   updated_at: string
 }
 
 export interface RecipeIngredientsRow {
   id: string
-  school_id: string
   recipe_id: string
   ingredient_id: string | null
   name: string
@@ -114,12 +110,14 @@ export interface RecipeIngredientsRow {
   source_formula: string | null
   source_cell: string | null
   yield_percentage: number | null
+  is_active: boolean
+  deleted_at: string | null
+  deleted_by: string | null
   created_at: string
 }
 
 export interface MealCompositionTemplatesRow {
   id: string
-  school_id: string
   name: string
   service_type: ServiceType
   target_total_cost_cents: number | null
@@ -127,13 +125,15 @@ export interface MealCompositionTemplatesRow {
   tolerance_cents: number
   aliases: string[] | null
   provenance: Json | null
+  is_active: boolean
+  deleted_at: string | null
+  deleted_by: string | null
   created_at: string
   updated_at: string
 }
 
 export interface MealCompositionComponentsRow {
   id: string
-  school_id: string
   template_id: string
   component_type: MealCompositionComponentType
   name: string
@@ -150,37 +150,42 @@ export interface MealCompositionComponentsRow {
   merma_percentage: number | null
   aliases: string[] | null
   provenance: Json | null
+  is_active: boolean
+  deleted_at: string | null
+  deleted_by: string | null
   created_at: string
 }
 
 export interface MenuPlanCellsRow {
   id: string
-  school_id: string
   week_start_date: string
   day: WeekDay
   category: DishCategory
   slot: number
   dish_id: string
   service_type: ServiceType
+  is_active: boolean
+  deleted_at: string | null
+  deleted_by: string | null
   created_at: string
 }
 
 export interface StudentsRow {
   id: string
-  school_id: string
   parent_id: string
   name: string
   grade: string
   balance_cents: number
   qr_code: string
   is_active: boolean
+  deleted_at: string | null
+  deleted_by: string | null
   created_at: string
   updated_at: string
 }
 
 export interface TransactionsRow {
   id: string
-  school_id: string
   student_id: string
   parent_id: string
   amount_cents: number
@@ -192,7 +197,6 @@ export interface TransactionsRow {
 
 export interface ConsumptionsRow {
   id: string
-  school_id: string
   student_id: string
   meals: number
   total_cents: number
@@ -202,7 +206,6 @@ export interface ConsumptionsRow {
 
 export interface ImportBatchesRow {
   id: string
-  school_id: string
   file_name: string
   file_hash: string
   status: ImportStatus
@@ -221,9 +224,22 @@ export interface ImportBatchesRow {
   provenance: string | null
 }
 
+export interface ImportedRowsRow {
+  id: string
+  batch_id: string
+  row_index: number
+  sheet_name: string | null
+  source_type: SourceType
+  raw_data: Json
+  normalized_data: Json | null
+  status: ImportedRowStatus
+  error_message: string | null
+  warning_messages: string[] | null
+  created_at: string
+}
+
 export interface ImportAuditLogsRow {
   id: string
-  school_id: string
   batch_id: string
   operator_id: string
   operator_role: string
@@ -249,24 +265,15 @@ export interface ImportAuditLogsRow {
 // TIPOS PARA INSERTS (sin campos auto-generados)
 // ============================================================
 
-export interface SchoolsInsert {
-  name: string
-  code: string
-  address?: string | null
-  phone?: string | null
-  email?: string | null
-  is_active?: boolean
-}
-
-export interface SchoolUsersInsert {
-  school_id: string
-  user_id: string
-  role: UserRole
+export interface UsersInsert {
+  id: string
+  email: string
+  full_name?: string | null
+  role?: UserRole
   is_active?: boolean
 }
 
 export interface IngredientsInsert {
-  school_id: string
   code: string
   category: string
   product: string
@@ -275,25 +282,25 @@ export interface IngredientsInsert {
   purchase_unit_cost_raw?: number | null
   source_formula?: string | null
   status?: IngredientStatus
+  is_active?: boolean
 }
 
 export interface DishesInsert {
-  school_id: string
   name: string
   category: DishCategory
   description?: string
+  is_active?: boolean
 }
 
 export interface DishRecipesInsert {
-  school_id: string
   dish_id: string
   source: string
   service_type: ServiceType
   portions?: number | null
+  is_active?: boolean
 }
 
 export interface RecipeIngredientsInsert {
-  school_id: string
   recipe_id: string
   ingredient_id?: string | null
   name: string
@@ -305,10 +312,10 @@ export interface RecipeIngredientsInsert {
   source_formula?: string | null
   source_cell?: string | null
   yield_percentage?: number | null
+  is_active?: boolean
 }
 
 export interface MealCompositionTemplatesInsert {
-  school_id: string
   name: string
   service_type: ServiceType
   target_total_cost_cents?: number | null
@@ -316,10 +323,10 @@ export interface MealCompositionTemplatesInsert {
   tolerance_cents?: number
   aliases?: string[] | null
   provenance?: Json | null
+  is_active?: boolean
 }
 
 export interface MealCompositionComponentsInsert {
-  school_id: string
   template_id: string
   component_type: MealCompositionComponentType
   name: string
@@ -336,20 +343,20 @@ export interface MealCompositionComponentsInsert {
   merma_percentage?: number | null
   aliases?: string[] | null
   provenance?: Json | null
+  is_active?: boolean
 }
 
 export interface MenuPlanCellsInsert {
-  school_id: string
   week_start_date: string
   day: WeekDay
   category: DishCategory
   slot: number
   dish_id: string
   service_type: ServiceType
+  is_active?: boolean
 }
 
 export interface StudentsInsert {
-  school_id: string
   parent_id: string
   name: string
   grade: string
@@ -359,7 +366,6 @@ export interface StudentsInsert {
 }
 
 export interface TransactionsInsert {
-  school_id: string
   student_id: string
   parent_id: string
   amount_cents: number
@@ -368,7 +374,6 @@ export interface TransactionsInsert {
 }
 
 export interface ConsumptionsInsert {
-  school_id: string
   student_id: string
   meals: number
   total_cents: number
@@ -376,7 +381,6 @@ export interface ConsumptionsInsert {
 }
 
 export interface ImportBatchesInsert {
-  school_id: string
   file_name: string
   file_hash: string
   status?: ImportStatus
@@ -393,8 +397,19 @@ export interface ImportBatchesInsert {
   provenance?: string | null
 }
 
+export interface ImportedRowsInsert {
+  batch_id: string
+  row_index: number
+  sheet_name?: string | null
+  source_type: SourceType
+  raw_data: Json
+  normalized_data?: Json | null
+  status?: ImportedRowStatus
+  error_message?: string | null
+  warning_messages?: string[] | null
+}
+
 export interface ImportAuditLogsInsert {
-  school_id: string
   batch_id: string
   operator_id: string
   operator_role: string
@@ -419,16 +434,9 @@ export interface ImportAuditLogsInsert {
 // TIPOS PARA UPDATES (campos opcionales)
 // ============================================================
 
-export interface SchoolsUpdate {
-  name?: string
-  code?: string
-  address?: string | null
-  phone?: string | null
-  email?: string | null
-  is_active?: boolean
-}
-
-export interface SchoolUsersUpdate {
+export interface UsersUpdate {
+  email?: string
+  full_name?: string | null
   role?: UserRole
   is_active?: boolean
 }
@@ -442,18 +450,27 @@ export interface IngredientsUpdate {
   purchase_unit_cost_raw?: number | null
   source_formula?: string | null
   status?: IngredientStatus
+  is_active?: boolean
+  deleted_at?: string | null
+  deleted_by?: string | null
 }
 
 export interface DishesUpdate {
   name?: string
   category?: DishCategory
   description?: string
+  is_active?: boolean
+  deleted_at?: string | null
+  deleted_by?: string | null
 }
 
 export interface DishRecipesUpdate {
   source?: string
   service_type?: ServiceType
   portions?: number | null
+  is_active?: boolean
+  deleted_at?: string | null
+  deleted_by?: string | null
 }
 
 export interface RecipeIngredientsUpdate {
@@ -467,6 +484,9 @@ export interface RecipeIngredientsUpdate {
   source_formula?: string | null
   source_cell?: string | null
   yield_percentage?: number | null
+  is_active?: boolean
+  deleted_at?: string | null
+  deleted_by?: string | null
 }
 
 export interface MealCompositionTemplatesUpdate {
@@ -477,6 +497,9 @@ export interface MealCompositionTemplatesUpdate {
   tolerance_cents?: number
   aliases?: string[] | null
   provenance?: Json | null
+  is_active?: boolean
+  deleted_at?: string | null
+  deleted_by?: string | null
 }
 
 export interface MealCompositionComponentsUpdate {
@@ -495,6 +518,9 @@ export interface MealCompositionComponentsUpdate {
   merma_percentage?: number | null
   aliases?: string[] | null
   provenance?: Json | null
+  is_active?: boolean
+  deleted_at?: string | null
+  deleted_by?: string | null
 }
 
 export interface MenuPlanCellsUpdate {
@@ -504,6 +530,9 @@ export interface MenuPlanCellsUpdate {
   slot?: number
   dish_id?: string
   service_type?: ServiceType
+  is_active?: boolean
+  deleted_at?: string | null
+  deleted_by?: string | null
 }
 
 export interface StudentsUpdate {
@@ -513,6 +542,8 @@ export interface StudentsUpdate {
   balance_cents?: number
   qr_code?: string
   is_active?: boolean
+  deleted_at?: string | null
+  deleted_by?: string | null
 }
 
 export interface TransactionsUpdate {
@@ -537,6 +568,13 @@ export interface ImportBatchesUpdate {
   rejected_rows?: number
 }
 
+export interface ImportedRowsUpdate {
+  normalized_data?: Json | null
+  status?: ImportedRowStatus
+  error_message?: string | null
+  warning_messages?: string[] | null
+}
+
 export interface ImportAuditLogsUpdate {
   persistence_result?: PersistenceResult
 }
@@ -548,15 +586,10 @@ export interface ImportAuditLogsUpdate {
 export interface Database {
   public: {
     Tables: {
-      schools: {
-        Row: SchoolsRow
-        Insert: SchoolsInsert
-        Update: SchoolsUpdate
-      }
-      school_users: {
-        Row: SchoolUsersRow
-        Insert: SchoolUsersInsert
-        Update: SchoolUsersUpdate
+      users: {
+        Row: UsersRow
+        Insert: UsersInsert
+        Update: UsersUpdate
       }
       ingredients: {
         Row: IngredientsRow
@@ -613,6 +646,11 @@ export interface Database {
         Insert: ImportBatchesInsert
         Update: ImportBatchesUpdate
       }
+      imported_rows: {
+        Row: ImportedRowsRow
+        Insert: ImportedRowsInsert
+        Update: ImportedRowsUpdate
+      }
       import_audit_logs: {
         Row: ImportAuditLogsRow
         Insert: ImportAuditLogsInsert
@@ -623,19 +661,27 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      current_user_school_id: {
+      current_user_role: {
         Args: Record<PropertyKey, never>
         Returns: string
       }
-      is_school_admin: {
-        Args: { p_school_id: string }
+      is_current_user_admin: {
+        Args: Record<PropertyKey, never>
         Returns: boolean
       }
-      is_school_member: {
-        Args: { p_school_id: string }
+      is_current_user_canteen_or_admin: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      is_current_user_parent: {
+        Args: Record<PropertyKey, never>
         Returns: boolean
       }
       update_updated_at_column: {
+        Args: Record<PropertyKey, never>
+        Returns: unknown
+      }
+      handle_new_user: {
         Args: Record<PropertyKey, never>
         Returns: unknown
       }
@@ -653,6 +699,7 @@ export interface Database {
       source_type: SourceType
       meal_composition_component_type: MealCompositionComponentType
       persistence_result: PersistenceResult
+      imported_row_status: ImportedRowStatus
       unit_of_measure: UnitOfMeasure
     }
     CompositeTypes: {

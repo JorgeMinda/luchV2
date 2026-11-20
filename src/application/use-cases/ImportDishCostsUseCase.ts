@@ -7,6 +7,8 @@ export interface ImportDishCostsInput {
   dishId: string
   source: string
   ingredients: RecipeIngredient[]
+  serviceType?: 'lunch' | 'breakfast' | 'snack'
+  portions?: number
 }
 
 export interface ImportDishCostsResult {
@@ -48,6 +50,8 @@ export class ImportDishCostsUseCase {
         source: string
         ingredients: RecipeIngredient[]
         signatures: Set<string>
+        serviceType?: 'lunch' | 'breakfast' | 'snack'
+        portions?: number
       }
     >()
     let skippedRecipes = 0
@@ -68,6 +72,8 @@ export class ImportDishCostsUseCase {
         source: input.source.trim(),
         ingredients: [],
         signatures: new Set<string>(),
+        serviceType: input.serviceType,
+        portions: input.portions,
       }
 
       for (const ingredient of ingredients) {
@@ -81,6 +87,12 @@ export class ImportDishCostsUseCase {
       if (!current.source && input.source.trim()) {
         current.source = input.source.trim()
       }
+      if (input.serviceType && !current.serviceType) {
+        current.serviceType = input.serviceType
+      }
+      if (input.portions && !current.portions) {
+        current.portions = input.portions
+      }
 
       merged.set(input.dishId, current)
     }
@@ -91,6 +103,8 @@ export class ImportDishCostsUseCase {
         dishId,
         source: value.source,
         ingredients: value.ingredients,
+        serviceType: value.serviceType ?? 'lunch',
+        portions: value.portions,
       }))
     const saved = await this.recipeRepository.saveMany(recipes)
 

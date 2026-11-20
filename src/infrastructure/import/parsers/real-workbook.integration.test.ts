@@ -9,13 +9,14 @@ import { detectSheetSourceType } from '../file-reader/sheet-type-detector'
 import type { ParserContext } from '../parsers/parser-common'
 
 /**
- * Integración real contra el documento original (solo ejecución local).
+ * Integración real contra el documento corregido (solo ejecución local).
  * Requiere que el archivo esté en:
- * `C:\Users\minda\Downloads\17-09-2026 REQ. COPIA MENU DESDE AGOSTO A JULIO 2026-2027 YUMISI (4).xlsx`
+ * `C:\Users\minda\Downloads\17-09-2026 REQ. COPIA MENU DESDE AGOSTO A JULIO 2026-2027 YUMISI (5).xlsx`
  * Si no existe, la prueba se salta (no bloquea CI).
+ * Archivo auditado en Fase 4.4.1.2: SHA-256 85dc913723f642c6568c0e4304360474c60426379fd6b47a283005c7e57086fc
  */
 const REAL_FILE_PATH =
-  'C:/Users/minda/Downloads/17-09-2026 REQ. COPIA MENU DESDE AGOSTO A JULIO 2026-2027 YUMISI (4).xlsx'
+  'C:/Users/minda/Downloads/17-09-2026 REQ. COPIA MENU DESDE AGOSTO A JULIO 2026-2027 YUMISI (5).xlsx'
 
 function fileExists(path: string): boolean {
   try {
@@ -71,11 +72,11 @@ describe.skipIf(!REAL_FILE_PRESENT)('Real workbook integration — 17-09-2026 YU
       sourceType: 'CATALOG',
     }
     const result = parseCatalogSheet(sheet.rows, context)
-    expect(result.stats.parsedItems).toBe(461)
+    expect(result.stats.parsedItems).toBe(462) // 462 filas de datos válidas (filas 2-463, header en fila 1)
     expect(result.stats.itemsWithCost).toBeGreaterThan(0)
   })
 
-  it('RECIPE_COSTING: 249 bloques almuerzos + 10 refrigerios', async () => {
+  it('RECIPE_COSTING: detecta bloques de componente válidos (forense: 257 componentes almuerzos, 2 refrigerios)', async () => {
     const workbook = await workbookPromise
     const almuerzos = workbook.sheets[1]
     const refrigerios = workbook.sheets[3]
@@ -88,11 +89,22 @@ describe.skipIf(!REAL_FILE_PRESENT)('Real workbook integration — 17-09-2026 YU
     const ctxR: ParserContext = { ...ctxA, sheetName: refrigerios.originalName, sheetIndex: refrigerios.index }
     const resA = parseRecipeCostingSheet(almuerzos.rows, ctxA)
     const resR = parseRecipeCostingSheet(refrigerios.rows, ctxR)
-    expect(resA.stats.blocks).toBe(249)
-    expect(resR.stats.blocks).toBe(10)
+    // Auditoría forense 4.4.1.2: 259 bloques forenses detectados, parser previo 259.
+    // Nuevo parser: 257 bloques de componente válidos (título + header canónico + ingredientes + cierres).
+    // Cada "receta" de almuerzo = múltiples componentes (SOPA, ARROZ, GUARNICION, PLATO FUERTE, POSTRE, FRUTA, JUGO, etc.).
+    expect(resA.stats.blocks).toBe(257)
+    expect(resA.stats.ingredientRows).toBeGreaterThan(1000)
+    expect(resR.stats.blocks).toBe(10) // 10 bloques de componente válidos (todos con header+ingredientes+cierres)
+    expect(resR.stats.ingredientRows).toBeGreaterThan(0)
+    // Verificar que se registran ingredientes sueltos (los 250+ ingredientes de catálogo sueltos al inicio)
+    expect(resA.stats.looseIngredients).toBe(5) // 2 bloques incompletos × ingredientes sueltos
+    expect(resR.stats.looseIngredients).toBe(0) // Sin bloques incompletos en refrigerios
+    // Verificar que bloques incompletos se reportan como incidencias
+    const incompleteIncidents = resA.incidents.filter(i => i.code === 'RECIPE_INCOMPLETE_BLOCK')
+    expect(incompleteIncidents.length).toBeGreaterThan(0)
   })
 
-  it('MENU_PLAN: estructura del menú anual (14 semanas detectadas)', async () => {
+  it('MENU_PLAN: estructura del menú anual (14 semanas calendario, 15 bloques físicos)', async () => {
     const workbook = await workbookPromise
     const anual = workbook.sheets[2]
     const ctxA: ParserContext = {
@@ -102,14 +114,26 @@ describe.skipIf(!REAL_FILE_PRESENT)('Real workbook integration — 17-09-2026 YU
       sourceType: 'MENU_PLAN',
     }
     const resA = parseMenuPlanSheet(anual.rows, ctxA)
-    // El parser ahora detecta correctamente 14 bloques semanales ("SEMANA 1" a "SEMANA 14")
-    // y las 884 celdas #REF! se detectan correctamente.
-    expect(resA.stats.formulaErrorCells).toBe(884)
-    expect(resA.stats.weekBlocks).toBe(14)
-    // Verifica que al menos algunas semanas tengan weekStartDate válido (lunes)
-    // (algunas semanas en el documento real pueden no tener fila de fechas parseable)
+    // Auditoría forense 4.4.1.2: 14 semanas calendario reales, 17 etiquetas (con duplicados),
+    // 15 bloques físicos detectados (cada fila de fechas = bloque).
+    expect(resA.stats.formulaErrorCells).toBe(883) // 883 #REF! según forense
+    expect(resA.stats.calendarWeeks).toBe(14)
+    expect(resA.stats.physicalBlocks).toBe(15)
+    expect(resA.stats.businessDays).toBeGreaterThan(60)
+    // Verifica weekStartDate válido (lunes local)
     const weeksWithStartDate = resA.weeks.filter(w => w.weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/))
     expect(weeksWithStartDate.length).toBeGreaterThan(0)
+    // Verificar que se extraen MenuEntry con trazabilidad F.7
+    const totalEntries = resA.weeks.reduce((sum, w) => sum + w.entries.length, 0)
+    expect(totalEntries).toBeGreaterThan(0)
+    for (const week of resA.weeks) {
+      for (const entry of week.entries) {
+        expect(entry.sourceCell).toBeDefined()
+        expect(entry.sourceSheet).toBeDefined()
+        expect(entry.sourceFile).toBeDefined()
+        expect(entry.serviceDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      }
+    }
   })
 
   it('MEAL_COMPOSITION: 4 plantillas con gramajes y costos reales', async () => {

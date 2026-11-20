@@ -87,9 +87,8 @@ describe('date-normalizer', () => {
       expect(result.normalized).toBe('1900-03-01')
     })
 
-    it('sistema 1904: serial 0 → 1904-01-01', () => {
-      const result = parseExcelSerialDate(0, true)
-      expect(result.normalized).toBe('1904-01-01')
+    it('sistema 1904: serial 0 lanza error (rechazado según F.4)', () => {
+      expect(() => parseExcelSerialDate(0, true)).toThrow('Serial de fecha inválido o cero: 0')
     })
   })
 

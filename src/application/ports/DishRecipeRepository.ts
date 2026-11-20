@@ -1,6 +1,6 @@
 import type { DishRecipe } from '../../domain/entities'
 
-export type DishRecipeInput = Omit<DishRecipe, 'updatedAt'>
+export type DishRecipeInput = Omit<DishRecipe, 'updatedAt' | 'isActive' | 'deletedAt' | 'deletedBy'>
 
 export interface DishRecipeRepository {
   listSnapshot(): DishRecipe[]

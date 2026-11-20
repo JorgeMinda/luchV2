@@ -4,20 +4,12 @@ import type { PaymentRepository, PaymentStatus } from '../../../application/port
 import { SupabaseRepositoryBase } from './SupabaseRepositoryBase'
 import type { TypedSupabaseClient } from './SupabaseRepositoryBase'
 import { fromCents } from '../../../domain/value-objects/money'
+import type { TransactionsRow, TransactionsInsert, TransactionsUpdate } from '../database.types'
 
 /**
  * Mapea fila de BD a Transaction de dominio.
  */
-function mapRowToTransaction(row: {
-  id: string
-  student_id: string
-  parent_id: string
-  amount_cents: number
-  receipt_url: string
-  status: PaymentStatus
-  created_at: string
-  approved_at: string | null
-}): Transaction {
+function mapRowToTransaction(row: TransactionsRow): Transaction {
   return {
     id: row.id,
     studentId: row.student_id,
@@ -32,7 +24,7 @@ function mapRowToTransaction(row: {
 
 /**
  * Repositorio Supabase para Transactions (Payments).
- * Respeta RLS por school_id (F.1).
+ * Single-tenant (F.1): sin school_id, RLS por auth.uid() + role.
  */
 export class SupabasePaymentRepository
   extends SupabaseRepositoryBase
@@ -57,17 +49,21 @@ export class SupabasePaymentRepository
     status: PaymentStatus,
     approvedAt: string | null,
   ): Promise<Transaction> {
+    const update: TransactionsUpdate = {
+      status,
+      approved_at: approvedAt,
+    }
+
+    await this.updateRows<TransactionsUpdate>('transactions', update, { id })
+
     const { data, error } = await this.client
       .from('transactions')
-      .update({
-        status,
-        approved_at: approvedAt,
-      } as never)
+      .select('*')
       .eq('id', id)
-      .select()
-      .single()
+      .single() as { data: TransactionsRow | null; error: Error | null }
 
-    if (error) this.handleError(error, 'actualizar estado de transacción')
+    if (error) this.handleError(error, 'buscar transacción tras actualizar')
+    if (!data) throw new Error('Transacción no encontrada tras actualización')
     return mapRowToTransaction(data)
   }
 
@@ -77,19 +73,47 @@ export class SupabasePaymentRepository
     amount: Money
     receiptUrl: string
   }): Promise<Transaction> {
+    const insert: TransactionsInsert = {
+      student_id: input.studentId,
+      parent_id: input.parentId,
+      amount_cents: input.amount.cents,
+      receipt_url: input.receiptUrl,
+      status: 'pending',
+    }
+
+    const data = await this.insertOne<TransactionsRow, TransactionsInsert>('transactions', insert)
+    return mapRowToTransaction(data)
+  }
+
+  async listByParent(parentId: string): Promise<Transaction[]> {
     const { data, error } = await this.client
       .from('transactions')
-      .insert({
-        student_id: input.studentId,
-        parent_id: input.parentId,
-        amount_cents: input.amount.cents,
-        receipt_url: input.receiptUrl,
-        status: 'pending',
-      } as any)
-      .select()
-      .single()
+      .select('*')
+      .eq('parent_id', parentId)
+      .order('created_at', { ascending: false })
 
-    if (error) this.handleError(error, 'crear transacción')
-    return mapRowToTransaction(data)
+    if (error) this.handleError(error, 'listar transacciones por padre')
+    return (data ?? []).map(mapRowToTransaction)
+  }
+
+  async listByStudent(studentId: string): Promise<Transaction[]> {
+    const { data, error } = await this.client
+      .from('transactions')
+      .select('*')
+      .eq('student_id', studentId)
+      .order('created_at', { ascending: false })
+
+    if (error) this.handleError(error, 'listar transacciones por estudiante')
+    return (data ?? []).map(mapRowToTransaction)
+  }
+
+  async listAll(): Promise<Transaction[]> {
+    const { data, error } = await this.client
+      .from('transactions')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) this.handleError(error, 'listar todas las transacciones')
+    return (data ?? []).map(mapRowToTransaction)
   }
 }

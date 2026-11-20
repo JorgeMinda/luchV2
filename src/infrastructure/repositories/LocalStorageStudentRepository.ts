@@ -1,4 +1,4 @@
-import type { Student } from '../../domain/entities'
+import type { Student, NewStudent } from '../../domain/entities'
 import type { Money } from '../../domain/value-objects/money'
 import { fromDollars } from '../../domain/value-objects/money'
 import type { StudentRepository } from '../../application/ports/StudentRepository'
@@ -13,6 +13,17 @@ function normalizeStudent(student: Student): Student {
     return { ...student, balance: fromDollars(balance) }
   }
   return student
+}
+
+function isStudent(value: unknown): value is Student {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Student).id === 'string' &&
+    typeof (value as Student).name === 'string' &&
+    typeof (value as Student).qrCode === 'string' &&
+    typeof (value as Student).isActive === 'boolean'
+  )
 }
 
 function readStudents(): Student[] {
@@ -42,14 +53,46 @@ export class LocalStorageStudentRepository implements StudentRepository {
   async list(): Promise<Student[]> {
     return readStudents()
   }
-}
 
-function isStudent(value: unknown): value is Student {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as Student).id === 'string' &&
-    typeof (value as Student).name === 'string' &&
-    typeof (value as Student).qrCode === 'string'
-  )
+  async findByParentId(parentId: string): Promise<Student[]> {
+    const students = readStudents()
+    return students.filter((s) => s.parentId === parentId)
+  }
+
+  async findByQrCode(qrCode: string): Promise<Student | null> {
+    const students = readStudents()
+    return students.find((s) => s.qrCode === qrCode) ?? null
+  }
+
+  async save(student: NewStudent): Promise<Student> {
+    const students = readStudents()
+    const newStudent: Student = {
+      id: student.id ?? `student-${crypto.randomUUID()}`,
+      parentId: student.parentId,
+      name: student.name,
+      grade: student.grade,
+      balance: student.balance,
+      qrCode: student.qrCode,
+      isActive: true,
+      deletedAt: undefined,
+      deletedBy: undefined,
+    }
+    students.push(newStudent)
+    writeStoredCollection(STORAGE_KEY, students)
+    return newStudent
+  }
+
+  async delete(id: string, deletedBy: string): Promise<void> {
+    const students = readStudents()
+    const index = students.findIndex((s) => s.id === id)
+    if (index !== -1) {
+      students[index] = {
+        ...students[index],
+        isActive: false,
+        deletedAt: new Date().toISOString(),
+        deletedBy,
+      }
+      writeStoredCollection(STORAGE_KEY, students)
+    }
+  }
 }

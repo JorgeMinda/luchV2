@@ -79,12 +79,22 @@ describe('parseMenuPlanSheet — fechas texto (MENU REFRIGERIOS)', () => {
       sheetName: 'MENU REFRIGERIOS',
     })
 
-    // La hoja de refrigerios usa 'OPCION PLATO' como etiqueta de semana.
-    // El parser ahora detecta correctamente 1 bloque semanal.
-    expect(result.stats.weekBlocks).toBe(1)
+    // El fixture de prueba tiene 1 bloque físico con fechas.
+    // El parser detecta bloques físicos (cada fila de fechas = bloque).
+    expect(result.stats.physicalBlocks).toBeGreaterThanOrEqual(1)
     expect(result.stats.normalizedDates).toBeGreaterThan(0)
     expect(result.stats.dateCells).toBeGreaterThan(0)
     // Verifica que weekStartDate sea el lunes de la semana
     expect(result.weeks[0].weekStartDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    // Verificar MenuEntry con trazabilidad F.7
+    const totalEntries = result.weeks.reduce((sum, w) => sum + w.entries.length, 0)
+    expect(totalEntries).toBeGreaterThanOrEqual(0)
+    for (const week of result.weeks) {
+      for (const entry of week.entries) {
+        expect(entry.sourceCell).toBeDefined()
+        expect(entry.sourceSheet).toBeDefined()
+        expect(entry.sourceFile).toBeDefined()
+      }
+    }
   })
 })

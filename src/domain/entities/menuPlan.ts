@@ -31,4 +31,22 @@ export interface MenuPlanCell {
   category: DishCategory
   slot: number
   dishId: string
+  serviceType: 'lunch' | 'breakfast' | 'snack'
+  /** Borrado lógico: indica si el registro está activo. */
+  isActive: boolean
+  /** Timestamp de borrado lógico. */
+  deletedAt?: string
+  /** Usuario que realizó el borrado lógico. */
+  deletedBy?: string
+}
+
+export interface NewMenuPlanCell extends Omit<MenuPlanCell, 'isActive' | 'deletedAt' | 'deletedBy'> {}
+
+export interface MenuCellSelection extends Omit<MenuPlanCell, 'isActive' | 'deletedAt' | 'deletedBy'> {}
+
+export interface MenuCellTarget {
+  weekStartDate: string
+  day: WeekDay
+  category: DishCategory
+  slot: number
 }

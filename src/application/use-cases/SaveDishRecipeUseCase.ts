@@ -45,6 +45,7 @@ export class SaveDishRecipeUseCase {
         dishId: input.dishId,
         source: input.source.trim() || 'Edición manual',
         ingredients,
+        serviceType: 'lunch',
       },
     ])
 

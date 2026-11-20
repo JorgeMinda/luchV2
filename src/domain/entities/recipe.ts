@@ -30,6 +30,12 @@ export interface RecipeIngredient {
    * (0.8 = 80%). Opcional.
    */
   yieldPercentage?: number
+  /** Borrado lógico: indica si el registro está activo. */
+  isActive: boolean
+  /** Timestamp de borrado lógico. */
+  deletedAt?: string
+  /** Usuario que realizó el borrado lógico. */
+  deletedBy?: string
 }
 
 export interface DishRecipe {
@@ -41,6 +47,16 @@ export interface DishRecipe {
   serviceType?: ServiceType
   /** Número de porciones que rinde la receta. Opcional. */
   portions?: number
+  /** Borrado lógico: indica si el registro está activo. */
+  isActive: boolean
+  /** Timestamp de borrado lógico. */
+  deletedAt?: string
+  /** Usuario que realizó el borrado lógico. */
+  deletedBy?: string
+}
+
+export interface DishRecipeInput extends Omit<DishRecipe, 'updatedAt' | 'isActive' | 'deletedAt' | 'deletedBy'> {
+  // serviceType is optional in DishRecipe, so it's optional here too
 }
 
 function isValidQuantity(value: number): boolean {

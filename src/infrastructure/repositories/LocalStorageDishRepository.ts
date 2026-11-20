@@ -21,7 +21,8 @@ function isDish(value: unknown): value is Dish {
     typeof candidate.id === 'string' &&
     typeof candidate.name === 'string' &&
     typeof candidate.description === 'string' &&
-    DISH_CATEGORIES.some((category) => category === candidate.category)
+    DISH_CATEGORIES.some((category) => category === candidate.category) &&
+    typeof candidate.isActive === 'boolean'
   )
 }
 
@@ -47,6 +48,9 @@ export class LocalStorageDishRepository implements DishRepository {
         name: input.name,
         category: input.category,
         description: input.description,
+        isActive: true,
+        deletedAt: undefined,
+        deletedBy: undefined,
       }
 
       this.dishes = this.dishes.map((dish, index) =>
@@ -62,6 +66,9 @@ export class LocalStorageDishRepository implements DishRepository {
       name: input.name,
       category: input.category,
       description: input.description,
+      isActive: true,
+      deletedAt: undefined,
+      deletedBy: undefined,
     }
 
     this.dishes = [...this.dishes, created]
@@ -79,6 +86,9 @@ export class LocalStorageDishRepository implements DishRepository {
     const created = dishes.map((dish) => ({
       ...dish,
       id: `dish-${crypto.randomUUID()}`,
+      isActive: true,
+      deletedAt: undefined,
+      deletedBy: undefined,
     }))
 
     this.dishes = [...this.dishes, ...created]

@@ -301,6 +301,9 @@ function parseIngredientRow(
       purchasePrice: fromDollars(purchasePrice ?? 0),
       purchaseQuantity: purchaseQuantity ?? 1,
       recipeQuantity,
+      isActive: true,
+      deletedAt: undefined,
+      deletedBy: undefined,
     },
     error: null,
   }

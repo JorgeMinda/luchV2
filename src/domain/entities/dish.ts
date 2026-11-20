@@ -15,4 +15,18 @@ export interface Dish {
   name: string
   category: DishCategory
   description: string
+  /** Borrado lógico: indica si el registro está activo. */
+  isActive: boolean
+  /** Timestamp de borrado lógico. */
+  deletedAt?: string
+  /** Usuario que realizó el borrado lógico. */
+  deletedBy?: string
+}
+
+export interface NewDish extends Omit<Dish, 'id' | 'isActive' | 'deletedAt' | 'deletedBy'> {
+  id?: string
+}
+
+export interface DishInput extends Omit<Dish, 'id' | 'isActive' | 'deletedAt' | 'deletedBy'> {
+  id?: string
 }

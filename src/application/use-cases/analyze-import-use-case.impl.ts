@@ -84,7 +84,10 @@ export class AnalyzeImportUseCaseImpl implements AnalyzeImportUseCase {
     }
     await this.batchRepository.save(batch)
 
-    const operator = this.operatorProvider.getCurrentOperator()
+    const operator = await this.operatorProvider.getCurrentOperator()
+    if (!operator) {
+      throw new Error('Usuario no autenticado')
+    }
     const auditLog: ImportAuditLog = {
       batchId,
       operatorId: operator.id,

@@ -97,6 +97,7 @@ export interface RecipeCostingParseResult {
     readonly blocks: number
     readonly ingredientRows: number
     readonly errorIncidents: number
+    readonly looseIngredients: number
   }
 }
 
@@ -117,12 +118,22 @@ function isRowEmpty(row: readonly RawCell[]): boolean {
   return row.every((cell) => !cell || cell.type === 'empty')
 }
 
+/** Detecta filas de separador de semana (ej. "SEMANA 2 / DEL 11 AL 15 DE AGOSTO") */
+function isWeekSeparatorRow(row: readonly RawCell[]): boolean {
+  const colA = canonicalText(cellText(row, 0))
+  return colA.startsWith('semana') && colA.includes('del')
+}
+
 interface OpenBlock {
   titleRow: number
   title: string
   headerRow: number
   ingredients: ParsedRecipeIngredientRow[]
   closingRaw: ParsedClosingRow[]
+  /** Indica si el bloque tiene estructura válida (título + header + al menos 1 ingrediente) */
+  isValidStructure: boolean
+  /** Indica si se detectó el header canónico de ingredientes */
+  hasCanonicalHeader: boolean
 }
 
 interface ClosingClassification {
@@ -194,30 +205,66 @@ function classifyClosingRows(
   return { rows, incidents }
 }
 
+/** Registra ingredientes sueltos (sin bloque de receta) para trazabilidad */
+interface LooseIngredient {
+  rowNumber: number
+  name: string
+  purchasePriceRaw: unknown
+  recipeCostRaw: unknown
+}
+
 export function parseRecipeCostingSheet(
   rows: readonly (readonly RawCell[])[],
   context: ParserContext,
 ): RecipeCostingParseResult {
   const incidents: ImportIncident[] = []
   const blocks: ParsedRecipeBlock[] = []
+  const looseIngredients: LooseIngredient[] = []
 
   let current: OpenBlock | null = null
 
   const closeBlock = () => {
     const block = current
     if (!block) return
-    const classification = classifyClosingRows(block.closingRaw, context, block.title)
-    incidents.push(...classification.incidents)
-    blocks.push({
-      titleRow: block.titleRow,
-      title: block.title,
-      headerRow: block.headerRow,
-      ingredients: block.ingredients,
-      closingRows: classification.rows,
-      subtotal: classification.rows.find((r) => r.type === 'SUBTOTAL')?.value,
-      recharge5: classification.rows.find((r) => r.type === 'RECHARGE_5')?.value,
-      recharge3: classification.rows.find((r) => r.type === 'RECHARGE_3')?.value,
-    })
+    // Solo cerrar como bloque válido si tiene estructura completa:
+    // título + header canónico + al menos 1 ingrediente + filas de cierre
+    if (block.isValidStructure && block.hasCanonicalHeader && block.ingredients.length > 0 && block.closingRaw.length > 0) {
+      const classification = classifyClosingRows(block.closingRaw, context, block.title)
+      incidents.push(...classification.incidents)
+      blocks.push({
+        titleRow: block.titleRow,
+        title: block.title,
+        headerRow: block.headerRow,
+        ingredients: block.ingredients,
+        closingRows: classification.rows,
+        subtotal: classification.rows.find((r) => r.type === 'SUBTOTAL')?.value,
+        recharge5: classification.rows.find((r) => r.type === 'RECHARGE_5')?.value,
+        recharge3: classification.rows.find((r) => r.type === 'RECHARGE_3')?.value,
+      })
+    } else if (block.ingredients.length > 0 || block.closingRaw.length > 0) {
+      // Bloque incompleto: registrar como incidencia pero no como bloque válido
+      incidents.push(
+        incidentOf(context, {
+          code: 'RECIPE_INCOMPLETE_BLOCK',
+          field: 'Estructura',
+          originalValue: block.title || '(sin título)',
+          severity: 'WARNING',
+          description: `Bloque incompleto detectado desde fila ${block.titleRow} ('${block.title || 'sin título'}'): ${block.headerRow > 0 ? 'con header' : 'sin header'}, ${block.ingredients.length} ingredientes, ${block.closingRaw.length} filas de cierre. No se cuenta como receta válida.`,
+          recommendedAction: 'Revise la estructura del bloque en el archivo original.',
+          rowNumber: block.titleRow,
+          context: 'Parseo de bloques de receta',
+        }),
+      )
+      // Los ingredientes de bloques incompletos se pasan a sueltos para no perderlos
+      for (const ing of block.ingredients) {
+        looseIngredients.push({
+          rowNumber: ing.rowNumber,
+          name: ing.name,
+          purchasePriceRaw: ing.purchasePriceRaw,
+          recipeCostRaw: ing.recipeCostRaw,
+        })
+      }
+    }
     current = null
   }
 
@@ -226,19 +273,30 @@ export function parseRecipeCostingSheet(
     const rowNumber = rowIndex + 1
     const colA = cellText(row, INGREDIENT_COLS.name)
 
+    // Saltar separadores de semana
+    if (isWeekSeparatorRow(row)) {
+      continue
+    }
+
     if (isIngredientHeaderRow(row)) {
       if (current === null) {
+        // Header sin título previo: iniciar bloque esperando título anterior
         current = {
           titleRow: rowNumber,
           title: '',
           headerRow: rowNumber,
           ingredients: [],
           closingRaw: [],
+          isValidStructure: false,
+          hasCanonicalHeader: true,
         }
       } else if (current.headerRow === 0) {
+        // Primer header del bloque actual
         current.headerRow = rowNumber
+        current.hasCanonicalHeader = true
+        current.isValidStructure = current.title !== ''
       } else {
-        // Encabezado duplicado sin título propio: cierra el bloque anterior.
+        // Header duplicado: cerrar bloque anterior e iniciar nuevo
         closeBlock()
         current = {
           titleRow: rowNumber,
@@ -246,19 +304,51 @@ export function parseRecipeCostingSheet(
           headerRow: rowNumber,
           ingredients: [],
           closingRaw: [],
+          isValidStructure: false,
+          hasCanonicalHeader: true,
         }
       }
       continue
     }
 
     if (current === null) {
+      // Sin bloque abierto: si hay contenido en A, podría ser título de futuro bloque
+      // PERO solo si NO es un ingrediente suelto (que no tiene header posterior)
+      // Los ingredientes sueltos al inicio de la hoja no tienen header siguiente
+      // Los guardamos como sueltos y esperamos un header para iniciar bloque real
       if (colA !== '') {
-        current = {
-          titleRow: rowNumber,
-          title: colA,
-          headerRow: 0,
-          ingredients: [],
-          closingRaw: [],
+        // Verificar si las próximas filas tienen un header
+        let hasHeaderAhead = false
+        for (let lookahead = rowIndex + 1; lookahead < Math.min(rowIndex + 10, rows.length); lookahead++) {
+          if (isIngredientHeaderRow(rows[lookahead])) {
+            hasHeaderAhead = true
+            break
+          }
+          if (cellText(rows[lookahead], INGREDIENT_COLS.name) !== '' && !isWeekSeparatorRow(rows[lookahead])) {
+            // Otro contenido antes del header: probablemente ingrediente suelto
+            break
+          }
+        }
+        if (hasHeaderAhead) {
+          current = {
+            titleRow: rowNumber,
+            title: colA,
+            headerRow: 0,
+            ingredients: [],
+            closingRaw: [],
+            isValidStructure: false, // Se marca true solo cuando se encuentra header canónico
+            hasCanonicalHeader: false,
+          }
+        } else {
+          // Ingrediente suelto sin header posterior
+          const purchasePriceCell = rawCell(row, INGREDIENT_COLS.purchasePrice)
+          const recipeCostCell = rawCell(row, INGREDIENT_COLS.recipeCost)
+          looseIngredients.push({
+            rowNumber,
+            name: colA,
+            purchasePriceRaw: purchasePriceCell && purchasePriceCell.type !== 'empty' ? purchasePriceCell.value : '',
+            recipeCostRaw: recipeCostCell && recipeCostCell.type !== 'empty' ? recipeCostCell.value : '',
+          })
         }
       }
       continue
@@ -269,6 +359,7 @@ export function parseRecipeCostingSheet(
       if (colA !== '') {
         current.title = colA
         current.titleRow = rowNumber
+        // isValidStructure se marca true solo cuando se encuentra header canónico
       }
       continue
     }
@@ -308,12 +399,38 @@ export function parseRecipeCostingSheet(
     // siguiente bloque (título del nuevo plato).
     if (current.closingRaw.length > 0) {
       closeBlock()
-      current = {
-        titleRow: rowNumber,
-        title: colA,
-        headerRow: 0,
-        ingredients: [],
-        closingRaw: [],
+      // Verificar si la nueva fila tiene header posterior
+      let hasHeaderAhead = false
+      for (let lookahead = rowIndex + 1; lookahead < Math.min(rowIndex + 10, rows.length); lookahead++) {
+        if (isIngredientHeaderRow(rows[lookahead])) {
+          hasHeaderAhead = true
+          break
+        }
+        if (cellText(rows[lookahead], INGREDIENT_COLS.name) !== '' && !isWeekSeparatorRow(rows[lookahead])) {
+          break
+        }
+      }
+      if (hasHeaderAhead) {
+        current = {
+          titleRow: rowNumber,
+          title: colA,
+          headerRow: 0,
+          ingredients: [],
+          closingRaw: [],
+          isValidStructure: false,
+          hasCanonicalHeader: false,
+        }
+      } else {
+        // Ingrediente suelto
+        const purchasePriceCell = rawCell(row, INGREDIENT_COLS.purchasePrice)
+        const recipeCostCell = rawCell(row, INGREDIENT_COLS.recipeCost)
+        looseIngredients.push({
+          rowNumber,
+          name: colA,
+          purchasePriceRaw: purchasePriceCell && purchasePriceCell.type !== 'empty' ? purchasePriceCell.value : '',
+          recipeCostRaw: recipeCostCell && recipeCostCell.type !== 'empty' ? recipeCostCell.value : '',
+        })
+        current = null
       }
       continue
     }
@@ -446,6 +563,21 @@ export function parseRecipeCostingSheet(
 
   closeBlock()
 
+  // Registrar ingredientes sueltos como incidencias de trazabilidad
+  if (looseIngredients.length > 0) {
+    incidents.push(
+      incidentOf(context, {
+        code: 'RECIPE_LOOSE_INGREDIENTS',
+        field: 'Ingredientes sin bloque',
+        originalValue: `${looseIngredients.length} ingredientes`,
+        severity: 'WARNING',
+        description: `Se detectaron ${looseIngredients.length} ingredientes sueltos (sin estructura de receta completa: título + header + ingredientes + cierre). Se conservan para trazabilidad pero no forman recetas válidas.`,
+        recommendedAction: 'Revise si estos ingredientes pertenecen a recetas no detectadas o son referencias de catálogo.',
+        context: 'Parseo de bloques de receta',
+      }),
+    )
+  }
+
   return {
     blocks,
     incidents,
@@ -455,6 +587,7 @@ export function parseRecipeCostingSheet(
       blocks: blocks.length,
       ingredientRows: blocks.reduce((n, block) => n + block.ingredients.length, 0),
       errorIncidents: incidents.filter((i) => i.severity === 'ERROR').length,
+      looseIngredients: looseIngredients.length,
     },
   }
 }

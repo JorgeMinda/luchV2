@@ -12,6 +12,9 @@ export const demoStudent: Student = {
   grade: '5° B',
   balance: fromDollars(18.5),
   qrCode: 'LUNCH-SOFIA-5B-001',
+  isActive: true,
+  deletedAt: undefined,
+  deletedBy: undefined,
 }
 
 export interface MenuDayView {

@@ -1,4 +1,4 @@
-import type { Ingredient, IngredientStatus } from '../../../domain/entities'
+import type { IngredientStatus, NewIngredient } from '../../../domain/entities'
 import { fromDollars, type Money } from '../../../domain/value-objects/money'
 import {
   downloadCsv,
@@ -204,7 +204,7 @@ export async function parseCatalogFile(
 
 export function toNewIngredient(
   row: ParsedIngredientRow,
-): Omit<Ingredient, 'id'> {
+): NewIngredient {
   return {
     code: row.code,
     category: row.category,

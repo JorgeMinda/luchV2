@@ -2,32 +2,12 @@ import type { ImportAuditLog } from '../../../domain/entities/import-audit-log'
 import type { ImportAuditRepository } from '../../../application/ports/import-audit-repository'
 import { SupabaseRepositoryBase } from './SupabaseRepositoryBase'
 import type { TypedSupabaseClient } from './SupabaseRepositoryBase'
+import type { ImportAuditLogsRow, ImportAuditLogsInsert } from '../database.types'
 
 /**
  * Mapea fila de BD a ImportAuditLog de dominio.
  */
-function mapRowToImportAuditLog(row: {
-  id: string
-  batch_id: string
-  operator_id: string
-  operator_role: string
-  timestamp: string
-  file_name: string
-  file_hash: string
-  format: string
-  sheet_name: string | null
-  source_type: string | null
-  analysis_version: string | null
-  total_rows: number
-  valid_rows: number
-  warning_rows: number
-  error_rows: number
-  transformations: string[] | null
-  corrections: string[] | null
-  approvals: string[] | null
-  rejections: string[] | null
-  persistence_result: 'pending' | 'success' | 'partial' | 'failed'
-}): ImportAuditLog {
+function mapRowToImportAuditLog(row: ImportAuditLogsRow): ImportAuditLog {
   return {
     batchId: row.batch_id,
     operatorId: row.operator_id,
@@ -53,7 +33,7 @@ function mapRowToImportAuditLog(row: {
 
 /**
  * Repositorio Supabase para ImportAuditLogs.
- * Respeta RLS por school_id (F.1).
+ * Single-tenant (F.1): sin school_id, RLS por auth.uid() + role.
  */
 export class SupabaseImportAuditRepository
   extends SupabaseRepositoryBase
@@ -63,11 +43,10 @@ export class SupabaseImportAuditRepository
   }
 
   async save(log: ImportAuditLog): Promise<void> {
-    const { error } = await this.client.from('import_audit_logs').insert({
+    const insert: ImportAuditLogsInsert = {
       batch_id: log.batchId,
       operator_id: log.operatorId,
       operator_role: log.operatorRole,
-      timestamp: log.timestamp,
       file_name: log.fileName,
       file_hash: log.fileHash,
       format: log.format,
@@ -83,9 +62,9 @@ export class SupabaseImportAuditRepository
       approvals: log.approvals,
       rejections: log.rejections,
       persistence_result: log.persistenceResult,
-    } as any)
+    }
 
-    if (error) this.handleError(error, 'guardar log de auditoría de importación')
+    await this.insertOne<ImportAuditLogsRow, ImportAuditLogsInsert>('import_audit_logs', insert)
   }
 
   async findByBatchId(batchId: string): Promise<ImportAuditLog[]> {

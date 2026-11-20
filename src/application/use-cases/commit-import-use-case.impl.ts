@@ -2,22 +2,47 @@ import type { CommitImportInput, CommitImportOutput } from '../dtos/import-dtos'
 import type { CommitImportUseCase } from './commit-import-use-case'
 import type { ImportBatchRepository } from '../ports/import-batch-repository'
 import type { ImportAuditRepository } from '../ports/import-audit-repository'
-import type { ImportBatch } from '../../domain/entities/import-batch'
 import { InMemoryImportRowStore } from '../../infrastructure/import/batch/in-memory-row-store'
+import { PersistImportUseCase } from './persist-import-use-case'
+import type { IngredientRepository } from '../ports/IngredientRepository'
+import type { DishRepository } from '../ports/DishRepository'
+import type { DishRecipeRepository } from '../ports/DishRecipeRepository'
+import type { MenuPlanRepository } from '../ports/MenuPlanRepository'
+import type { MealCompositionRepository } from '../ports/MealCompositionRepository'
+import type { CurrentOperatorPort } from '../ports/current-operator-port'
 
 export class CommitImportUseCaseImpl implements CommitImportUseCase {
   private batchRepository: ImportBatchRepository
   private auditRepository: ImportAuditRepository
   private rowStore: InMemoryImportRowStore
+  private persistImportUseCase: PersistImportUseCase
 
   constructor(
     batchRepository: ImportBatchRepository,
     auditRepository: ImportAuditRepository,
     rowStore: InMemoryImportRowStore,
+    ingredientRepository: IngredientRepository,
+    dishRepository: DishRepository,
+    dishRecipeRepository: DishRecipeRepository,
+    menuPlanRepository: MenuPlanRepository,
+    mealCompositionRepository: MealCompositionRepository,
+    operatorProvider: CurrentOperatorPort,
   ) {
     this.batchRepository = batchRepository
     this.auditRepository = auditRepository
     this.rowStore = rowStore
+    this.persistImportUseCase = new PersistImportUseCase(
+      ingredientRepository,
+      dishRepository,
+      dishRecipeRepository,
+      menuPlanRepository,
+      mealCompositionRepository,
+      batchRepository,
+      auditRepository,
+      operatorProvider,
+    )
+    // auditRepository is used by persistImportUseCase
+    void this.auditRepository
   }
 
   async execute(input: CommitImportInput): Promise<CommitImportOutput> {
@@ -39,31 +64,19 @@ export class CommitImportUseCaseImpl implements CommitImportUseCase {
       throw new Error(`No se pueden persistir ${invalid.length} filas con estado ERROR.`)
     }
 
-    const completedBatch: ImportBatch = {
-      ...batch,
-      status: 'COMPLETED',
-      processedAt: new Date().toISOString(),
-      approvedRows: approved.length,
-      rejectedRows: rejected.length,
-    }
-    await this.batchRepository.save(completedBatch)
+    // Persist to domain tables
+    const persistResult = await this.persistImportUseCase.execute({
+      batchId: batch.id,
+      approvedRowNumbers: input.approvedRowNumbers,
+    })
 
-    const previousLogs = await this.auditRepository.findByBatchId(batch.id)
-    const previous = previousLogs[previousLogs.length - 1]
-    if (previous) {
-      await this.auditRepository.save({
-        ...previous,
-        approvals: approved.map((r) => String(r.rowNumber)),
-        rejections: rejected.map((r) => String(r.rowNumber)),
-        persistenceResult: 'success',
-      })
-    }
+    const totalPersisted = Object.values(persistResult.persistedCounts).reduce((a, b) => a + b, 0)
 
     return {
       batchId: batch.id,
-      persistedRows: approved.length,
+      persistedRows: totalPersisted,
       skippedRows: rejected.length,
-      persistenceResult: 'success',
+      persistenceResult: persistResult.errors.length > 0 ? 'partial' : 'success',
     }
   }
 }

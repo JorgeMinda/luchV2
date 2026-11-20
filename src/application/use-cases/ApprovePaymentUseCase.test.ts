@@ -12,6 +12,9 @@ function makeStudent(balance: number) {
     grade: '5° B',
     balance: fromDollars(balance),
     qrCode: 'QR-001',
+    isActive: true,
+    deletedAt: undefined,
+    deletedBy: undefined,
   }
 }
 

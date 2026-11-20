@@ -16,6 +16,9 @@ describe('recipe costing domain', () => {
     purchasePrice: fromDollars(1.5), // 150 centavos por 1000g
     purchaseQuantity: 1000,
     recipeQuantity: 250,
+    isActive: true,
+    deletedAt: undefined,
+    deletedBy: undefined,
   }
 
   describe('getIngredientUnitCost', () => {
@@ -80,6 +83,9 @@ describe('recipe costing domain', () => {
         ingredients: [baseIngredient],
         updatedAt: '2026-01-01',
         portions: 2,
+        isActive: true,
+        deletedAt: undefined,
+        deletedBy: undefined,
       }
       const costPerPortion = getDishRecipeTotalCost(recipe)
       // costo ingrediente = 38 centavos, / 2 = 19 centavos

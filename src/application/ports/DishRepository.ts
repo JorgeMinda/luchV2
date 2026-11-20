@@ -1,6 +1,6 @@
 import type { Dish, DishCategory } from '../../domain/entities'
 
-export type NewDish = Omit<Dish, 'id'>
+export type NewDish = Omit<Dish, 'id' | 'isActive' | 'deletedAt' | 'deletedBy'>
 
 export interface DishInput {
   id?: string

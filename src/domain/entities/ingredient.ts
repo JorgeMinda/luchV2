@@ -14,4 +14,14 @@ export interface Ingredient {
   /** Fórmula Excel original que generó el costo unitario (ej. "=C5/D5"). */
   sourceFormula?: string
   status: IngredientStatus
+  /** Borrado lógico: indica si el registro está activo. */
+  isActive: boolean
+  /** Timestamp de borrado lógico. */
+  deletedAt?: string
+  /** Usuario que realizó el borrado lógico. */
+  deletedBy?: string
+}
+
+export interface NewIngredient extends Omit<Ingredient, 'id' | 'isActive' | 'deletedAt' | 'deletedBy'> {
+  id?: string
 }

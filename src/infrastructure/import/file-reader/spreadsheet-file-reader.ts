@@ -125,6 +125,7 @@ interface SheetJsCell {
   t?: string
   v?: unknown
   w?: string
+  f?: string
 }
 
 /** Mapa de códigos de error de celda de SheetJS a su texto canónico. */
@@ -138,10 +139,12 @@ const ERROR_CODE_TEXT: Record<number, string> = {
   0x1f: '#N/A',
 }
 
-function cellToRawCell(cell: SheetJsCell | undefined): RawCell {
+function cellToRawCell(cell: SheetJsCell | undefined, address?: string, sheetName?: string, fileName?: string): RawCell {
   if (!cell || cell.v === undefined || cell.v === null) {
-    return toCell('', 'empty')
+    return { ...toCell('', 'empty'), sourceCell: address, sourceSheet: sheetName, sourceFile: fileName }
   }
+
+  let result: RawCell
 
   switch (cell.t) {
     case 'e': {
@@ -149,19 +152,40 @@ function cellToRawCell(cell: SheetJsCell | undefined): RawCell {
         typeof cell.w === 'string' && cell.w.trim() !== ''
           ? cell.w.trim()
           : ERROR_CODE_TEXT[Number(cell.v)] ?? `#ERROR_${Number(cell.v)}`
-      return toCell(text, 'error', text)
+      result = toCell(text, 'error', text)
+      break
     }
     case 'd':
-      return toCell(cell.v, 'date', typeof cell.w === 'string' ? cell.w : undefined)
+      result = toCell(cell.v, 'date', typeof cell.w === 'string' ? cell.w : undefined)
+      break
     case 'n':
-      return toCell(cell.v, 'number', typeof cell.w === 'string' ? cell.w : undefined)
+      result = toCell(cell.v, 'number', typeof cell.w === 'string' ? cell.w : undefined)
+      break
     case 'b':
-      return toCell(cell.v, 'boolean')
+      result = toCell(cell.v, 'boolean')
+      break
     case 's':
-      return stringCell(String(cell.v))
+      result = stringCell(String(cell.v))
+      break
     default:
-      return stringCell(String(cell.v))
+      result = stringCell(String(cell.v))
   }
+
+  // Agregar trazabilidad F.7: fórmula original y coordenada
+  if (cell.f) {
+    result = { ...result, formula: cell.f }
+  }
+  if (address) {
+    result = { ...result, sourceCell: address }
+  }
+  if (sheetName) {
+    result = { ...result, sourceSheet: sheetName }
+  }
+  if (fileName) {
+    result = { ...result, sourceFile: fileName }
+  }
+
+  return result
 }
 
 async function readExcelWorkbook(
@@ -222,7 +246,7 @@ async function readExcelWorkbook(
       const cells: RawCell[] = []
       for (let col = range.s.c; col <= range.e.c; col++) {
         const address = XLSX.utils.encode_cell({ r: row, c: col })
-        cells.push(cellToRawCell(sheet[address] as SheetJsCell | undefined))
+        cells.push(cellToRawCell(sheet[address] as SheetJsCell | undefined, address, name, fileName))
       }
       rows.push(cells)
     }

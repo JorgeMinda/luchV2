@@ -16,6 +16,10 @@
  *     resolución por contexto; las ambiguas sin contexto se bloquean con ERROR.
  *   - No se inventan menús, fechas ni categorías para completar datos faltantes.
  *   - weekStartDate siempre corresponde al lunes (fecha local YYYY-MM-DD).
+ *   - Tres variantes de header en refrigerios:
+ *     1. "OPCION PLATO" en col A + fechas en B:F + categorías FRUTA, BEBIDA, ENTRADA
+ *     2. Col A vacía + fechas en B:F + categorías PROTEÍNA, ENSALADA, FRUTA, JUGO
+ *     3. "DÍAS" en col A + fechas en B:F + categorías PROTEÍNA, ENSALADA, FRUTA, JUGO + FERIADO
  */
 
 import type { ImportIncident } from '../../../domain/value-objects/incident'
@@ -32,15 +36,15 @@ import {
 import { deduceDateFormat, parseDateWithContext, parseExcelSerialDate } from '../normalization/date-normalizer'
 
 export const MENU_CATEGORIES = [
-  'SOPA',
-  'PROTEINA',
-  'GUARNICION',
-  'ENSALADA',
-  'BEBIDA FRIA',
-  'POSTRE',
-  'FRUTA',
-  'ENTRADA',
-  'BEBIDA',
+  'sopa',
+  'proteina',
+  'guarnicion',
+  'ensalada',
+  'bebida fria',
+  'postre',
+  'fruta',
+  'entrada',
+  'bebida',
 ] as const
 
 export type MenuCategory = (typeof MENU_CATEGORIES)[number]
@@ -58,11 +62,19 @@ export interface MenuDateCell {
 export interface MenuEntry {
   readonly rowNumber: number
   readonly category: MenuCategory
+  readonly originalCategory: string
   readonly column: number
   readonly columnLetter: string
+  readonly dayIndex: number // 0=Lunes, 1=Martes, ..., 4=Viernes
+  readonly serviceDate: string // YYYY-MM-DD
   readonly dish?: string
   readonly originalValue: unknown
   readonly hasError: boolean
+  /** Trazabilidad F.7 */
+  readonly sourceCell?: string
+  readonly sourceSheet?: string
+  readonly sourceFile?: string
+  readonly sourceFormula?: string
 }
 
 export interface MenuWeekBlock {
@@ -71,6 +83,8 @@ export interface MenuWeekBlock {
   readonly weekStartDate: string // YYYY-MM-DD (lunes local)
   readonly dates: readonly MenuDateCell[]
   readonly entries: readonly MenuEntry[]
+  readonly headerType: 'semana' | 'opcion_plato' | 'date_only' | 'dias'
+  readonly feriadoDates: readonly string[] // Fechas marcadas como feriado
 }
 
 export interface MenuPlanParseResult {
@@ -84,6 +98,10 @@ export interface MenuPlanParseResult {
     readonly normalizedDates: number
     readonly entries: number
     readonly formulaErrorCells: number
+    readonly physicalBlocks: number
+    readonly calendarWeeks: number
+    readonly businessDays: number
+    readonly feriadoDays: number
   }
 }
 
@@ -107,24 +125,53 @@ function isDateLikeCell(cell: RawCell | undefined): boolean {
   return false
 }
 
-function dateLikeCount(row: readonly RawCell[]): number {
-  return row.slice(1).filter(isDateLikeCell).length
-}
-
-function isDateHeaderRow(row: readonly RawCell[]): boolean {
+/** Detecta fila "DÍAS" (tramo 3 refrigerios) */
+function isDiasRow(row: readonly RawCell[]): boolean {
   const label = canonicalText(cellText(row, 0))
-  if (label === 'opcion plato') return true
-  return dateLikeCount(row) >= 2
+  return label === 'dias' || label === 'días'
 }
 
-function isCategoryRow(row: readonly RawCell[]): boolean {
+/** Detecta fila de aviso FERIADO */
+function isFeriadoRow(row: readonly RawCell[]): boolean {
+  const label = canonicalText(cellText(row, 0))
+  return label === 'feriado'
+}
+
+/** Detecta fila de fechas: B:F tienen fechas válidas (independiente de columna A) */
+function detectDateHeaderRow(row: readonly RawCell[]): { hasDates: boolean; dates: MenuDateCell[] } {
+  const dateCells: MenuDateCell[] = []
+  for (let col = 1; col <= 5; col++) { // Columnas B-F (índices 1-5)
+    const cell = row[col]
+    if (cell && cell.type !== 'empty' && isDateLikeCell(cell)) {
+      dateCells.push({
+        column: col,
+        columnLetter: columnLetter(col),
+        original: cell.value,
+        cellType: cell.type,
+        normalized: undefined,
+        format: undefined,
+      })
+    }
+  }
+  return { hasDates: dateCells.length >= 2, dates: dateCells }
+}
+
+function detectCategoryRow(row: readonly RawCell[]): { isCategory: boolean; category: string } {
   const label = canonicalText(cellText(row, 0)).replace(/\s+/g, ' ')
-  return (MENU_CATEGORIES as readonly string[]).includes(label)
+  const matched = (MENU_CATEGORIES as readonly string[]).find(c => c === label)
+  return { isCategory: !!matched, category: matched || label }
 }
 
-function extractWeekNumber(text: string): number | null {
-  const match = text.match(/semana\s+(\d+)/i)
-  return match ? parseInt(match[1], 10) : null
+/**
+ * Obtiene el lunes de la semana para una fecha dada (YYYY-MM-DD)
+ */
+function getMondayOf(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const date = new Date(year, month - 1, day)
+  const dayOfWeek = date.getDay() // 0=Dom, 1=Lun, ..., 6=Sáb
+  const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek // Lunes = 1
+  date.setDate(date.getDate() + diff)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 /**
@@ -154,7 +201,6 @@ function parseDateCell(
   if (cell.type === 'number') {
     try {
       const parsed = parseExcelSerialDate(cell.value as number)
-      // parseExcelSerialDate devuelve fecha en zona local
       return { normalized: parsed.normalized, format: parsed.format }
     } catch (error) {
       return {
@@ -163,7 +209,7 @@ function parseDateCell(
           field: 'Fecha',
           originalValue: cell.value,
           severity: 'ERROR',
-          description: `La fecha serial ${String(cell.value)} (fila ${rowNumber}) no puede interpretarse de forma segura.`,
+          description: `La fecha serial ${String(cell.value)} (fila ${rowNumber}) no puede interpretarse de forma segura (${error instanceof Error ? error.message : 'serial inválido'}).`,
           recommendedAction: 'Revise la fecha en el archivo original.',
           rowNumber,
           column: 'Fecha',
@@ -200,23 +246,13 @@ function parseDateCell(
   }
 }
 
-/**
- * Detecta si una fila es una etiqueta de semana válida (SEMANA N u OPCION PLATO)
- * que inicia un nuevo bloque semanal.
- */
-function isWeekLabelRow(row: readonly RawCell[]): boolean {
-  const label = canonicalText(cellText(row, 0))
-  return label.startsWith('semana') || label === 'opcion plato'
-}
-
 export function parseMenuPlanSheet(
   rows: readonly (readonly RawCell[])[],
   context: ParserContext,
 ): MenuPlanParseResult {
   const incidents: ImportIncident[] = []
 
-  // Recolecta todas las fechas texto de la hoja para deducir el formato por
-  // contexto (fechas no ambiguas fijan el criterio del archivo).
+  // Recolecta todas las fechas texto de la hoja para deducir el formato por contexto
   const textualDates: string[] = []
   for (const row of rows) {
     for (const cell of row) {
@@ -235,33 +271,51 @@ export function parseMenuPlanSheet(
     normalizedDates: 0,
     entries: 0,
     formulaErrorCells: 0,
+    physicalBlocks: 0,
+    calendarWeeks: 0,
+    businessDays: 0,
+    feriadoDays: 0,
   }
 
-  let currentWeek: {
-    weekLabel: string
+  // Estado de parsing
+  let currentBlock: {
     labelRow: number
-    weekStartDate: string
+    weekLabel: string
+    headerType: 'semana' | 'opcion_plato' | 'date_only' | 'dias'
     dates: MenuDateCell[]
+    weekStartDate: string
     entries: MenuEntry[]
+    feriadoDates: string[]
+    currentCategory: string | null
   } | null = null
 
-  const closeWeek = () => {
-    if (!currentWeek) return
+  const closeBlock = () => {
+    if (!currentBlock) return
+    if (currentBlock.dates.length === 0 && currentBlock.entries.length === 0) return
+    
     weeks.push({
-      weekLabel: currentWeek.weekLabel,
-      labelRow: currentWeek.labelRow,
-      weekStartDate: currentWeek.weekStartDate,
-      dates: currentWeek.dates,
-      entries: currentWeek.entries,
+      weekLabel: currentBlock.weekLabel,
+      labelRow: currentBlock.labelRow,
+      weekStartDate: currentBlock.weekStartDate,
+      dates: currentBlock.dates,
+      entries: currentBlock.entries,
+      headerType: currentBlock.headerType,
+      feriadoDates: currentBlock.feriadoDates,
     })
-    currentWeek = null
+    stats.physicalBlocks += 1
+    currentBlock = null
   }
+
+  // Para tracking de semanas calendario únicas
+  const calendarWeeksSet = new Set<string>()
+  const businessDaysSet = new Set<string>()
+  const feriadoDaysSet = new Set<string>()
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex]
     const rowNumber = rowIndex + 1
 
-    // Errores de fórmula en cualquier celda de la hoja: ERROR con ubicación.
+    // Registrar errores de fórmula en cualquier celda
     for (let col = 0; col < row.length; col++) {
       const cell = row[col]
       if (isFormulaErrorCell(cell)) {
@@ -282,128 +336,242 @@ export function parseMenuPlanSheet(
       }
     }
 
-    const label = cellText(row, 0)
-    const isWeekLike = isWeekLabelRow(row)
-    const hasDates = dateLikeCount(row) >= 2
+    const colAText = cellText(row, 0)
+    const colACanonical = canonicalText(colAText)
+    const isWeekLike = colACanonical.startsWith('semana') || colACanonical === 'opcion plato'
+    const isDias = isDiasRow(row)
+    const isFeriado = isFeriadoRow(row)
+    const dateHeaderInfo = detectDateHeaderRow(row)
+    const hasDates = dateHeaderInfo.hasDates
+    const categoryInfo = detectCategoryRow(row)
 
-    if (isWeekLike && !hasDates) {
-      // Fila de etiqueta de semana sin fechas (ej. "SEMANA 1" sola)
-      if (currentWeek === null) {
-        currentWeek = {
-          weekLabel: label,
-          labelRow: rowNumber,
-          weekStartDate: '',
-          dates: [],
-          entries: [],
-        }
-      } else if (currentWeek.dates.length === 0 && currentWeek.entries.length === 0) {
-        // Refinamiento de la etiqueta del mismo bloque semanal.
-        currentWeek.weekLabel = label
-      } else {
-        closeWeek()
-        currentWeek = {
-          weekLabel: label,
-          labelRow: rowNumber,
-          weekStartDate: '',
-          dates: [],
-          entries: [],
-        }
-      }
+    // 1. Fila FERIADO: registrar y continuar
+    if (isFeriado) {
+      // Las fechas del feriado están en la siguiente fila de fechas
+      // Se manejará cuando se procese la fila de fechas
       continue
     }
 
-    if (currentWeek === null) {
-      // Si es una etiqueta de semana con fechas y no hay semana abierta,
-      // abrimos una nueva (caso: primera fila OPCION PLATO con fechas).
-      if (isWeekLike && hasDates) {
-        currentWeek = {
-          weekLabel: label,
-          labelRow: rowNumber,
-          weekStartDate: '',
-          dates: [],
-          entries: [],
-        }
-      } else {
-        continue // filas de título u otras sin bloque semanal abierto
-      }
-    }
-
-    if (isWeekLike || isDateHeaderRow(row)) {
-      // Si es una etiqueta de semana (semana N) con fechas y el número de semana
-      // cambia, cerramos la semana actual y abrimos una nueva.
-      if (isWeekLike) {
-        const newWeekNum = extractWeekNumber(label)
-        const currentWeekNum = extractWeekNumber(currentWeek.weekLabel)
-        if (newWeekNum !== null && currentWeekNum !== null && newWeekNum !== currentWeekNum) {
-          closeWeek()
-          currentWeek = {
-            weekLabel: label,
-            labelRow: rowNumber,
-            weekStartDate: '',
-            dates: [],
-            entries: [],
-          }
-        }
-      }
-
-      // Parsear fila de fechas
+    // 2. Nueva fila de fechas detectada (inicia bloque físico)
+    if (hasDates) {
+      // Parsear las celdas de fecha
       const dateCells: MenuDateCell[] = []
-      for (let col = 1; col < row.length; col++) {
-        const cell = row[col]
+      const normalizedDates: string[] = []
+      
+      for (const dateCell of dateHeaderInfo.dates) {
+        const cell = row[dateCell.column]
         if (!cell || cell.type === 'empty') continue
-        if (isFormulaErrorCell(cell)) continue // ya registrada arriba
+        if (isFormulaErrorCell(cell)) continue
         stats.dateCells += 1
         const parsed = parseDateCell(cell, context, rowNumber, dateFormat?.format ?? null)
-        if (parsed.normalized) stats.normalizedDates += 1
+        if (parsed.normalized) {
+          stats.normalizedDates += 1
+          normalizedDates.push(parsed.normalized)
+        }
         if (parsed.incident) incidents.push(parsed.incident)
         dateCells.push({
-          column: col,
-          columnLetter: columnLetter(col),
-          original: cell.value,
-          cellType: cell.type,
+          ...dateCell,
           normalized: parsed.normalized,
           format: parsed.format,
         })
       }
 
-      // Determinar weekStartDate: el lunes de las fechas parseadas (columna B típicamente)
-      if (dateCells.length > 0) {
-        const mondayCell = dateCells.find(d => d.column === 1) || dateCells[0]
-        if (mondayCell.normalized) {
-          currentWeek.weekStartDate = mondayCell.normalized
-        }
+      // Determinar weekStartDate: lunes de la primera fecha válida (columna B preferiblemente)
+      let weekStartDate = ''
+      const mondayCell = dateCells.find(d => d.column === 1) || dateCells[0]
+      if (mondayCell.normalized) {
+        weekStartDate = getMondayOf(mondayCell.normalized)
       }
 
-      currentWeek.dates.push(...dateCells)
+      // Determinar tipo de header
+      let headerType: 'semana' | 'opcion_plato' | 'date_only' | 'dias' = 'date_only'
+      if (isWeekLike) {
+        headerType = colACanonical === 'opcion plato' ? 'opcion_plato' : 'semana'
+      } else if (isDias) {
+        headerType = 'dias'
+      }
+
+      // Si hay bloque anterior, cerrarlo
+      if (currentBlock) {
+        closeBlock()
+      }
+
+      // Iniciar nuevo bloque
+      currentBlock = {
+        labelRow: rowNumber,
+        weekLabel: colAText || `Bloque fila ${rowNumber}`,
+        headerType,
+        dates: dateCells,
+        weekStartDate,
+        entries: [],
+        feriadoDates: [],
+        currentCategory: null,
+      }
+
+      // Registrar semana calendario
+      if (weekStartDate) {
+        calendarWeeksSet.add(weekStartDate)
+      }
+
+      // Registrar días hábiles
+      for (const dc of dateCells) {
+        if (dc.normalized) {
+          businessDaysSet.add(dc.normalized)
+        }
+      }
       continue
     }
 
-    if (isCategoryRow(row)) {
-      const category = canonicalText(cellText(row, 0)).replace(/\s+/g, ' ') as MenuCategory
-      for (let col = 1; col < row.length; col++) {
+    // 3. Fila de categoría (también contiene platos en columnas B-F)
+    if (categoryInfo.isCategory) {
+      if (!currentBlock) {
+        // Categoría sin bloque de fechas abierto: incidencia
+        incidents.push(
+          incidentOf(context, {
+            code: 'MENU_CATEGORY_WITHOUT_DATES',
+            field: 'Categoría',
+            originalValue: colAText,
+            severity: 'WARNING',
+            description: `Categoría '${colAText}' (fila ${rowNumber}) sin fila de fechas previa.`,
+            recommendedAction: 'Revise la estructura del menú.',
+            rowNumber,
+            context: 'Parseo del plan de menú',
+          }),
+        )
+        continue
+      }
+      currentBlock.currentCategory = categoryInfo.category
+      
+      // Procesar platos EN LA MISMA FILA (columnas B-F)
+      for (let col = 1; col <= 5; col++) { // Columnas B-F
         const cell = rawCell(row, col)
         if (!cell || cell.type === 'empty') continue
-        if (isFormulaErrorCell(cell)) continue // ya registrada arriba
+        if (isFormulaErrorCell(cell)) continue
         const dish = cellText(row, col)
         if (dish === '') continue
+        
         stats.entries += 1
-        currentWeek.entries.push({
+        
+        const serviceDate = currentBlock.dates.find(d => d.column === col)?.normalized || ''
+        const dayIndex = col - 1 // 0=Lunes, ..., 4=Viernes
+        
+        if (serviceDate) {
+          businessDaysSet.add(serviceDate)
+        }
+
+        const sourceCell = cell.sourceCell
+        const sourceSheet = cell.sourceSheet
+        const sourceFile = cell.sourceFile
+        const sourceFormula = cell.formula
+
+        currentBlock.entries.push({
           rowNumber,
-          category,
+          category: currentBlock.currentCategory as MenuCategory,
+          originalCategory: colAText,
           column: col,
           columnLetter: columnLetter(col),
+          dayIndex,
+          serviceDate,
           dish,
           originalValue: cell.value,
           hasError: false,
+          sourceCell,
+          sourceSheet,
+          sourceFile,
+          sourceFormula,
         })
+      }
+      continue
+    }
+
+    // 4. Fila con platos (tiene contenido en columnas B-F y categoría actual) - para filas sin categoría en A
+    if (currentBlock && currentBlock.currentCategory) {
+      let hasDishInRow = false
+      for (let col = 1; col <= 5; col++) { // Columnas B-F
+        const cell = rawCell(row, col)
+        if (!cell || cell.type === 'empty') continue
+        if (isFormulaErrorCell(cell)) continue
+        const dish = cellText(row, col)
+        if (dish === '') continue
+        
+        hasDishInRow = true
+        stats.entries += 1
+        
+        const serviceDate = currentBlock.dates.find(d => d.column === col)?.normalized || ''
+        const dayIndex = col - 1 // 0=Lunes, ..., 4=Viernes
+        
+        if (serviceDate) {
+          businessDaysSet.add(serviceDate)
+        }
+
+        const sourceCell = cell.sourceCell
+        const sourceSheet = cell.sourceSheet
+        const sourceFile = cell.sourceFile
+        const sourceFormula = cell.formula
+
+        currentBlock.entries.push({
+          rowNumber,
+          category: currentBlock.currentCategory as MenuCategory,
+          originalCategory: colAText,
+          column: col,
+          columnLetter: columnLetter(col),
+          dayIndex,
+          serviceDate,
+          dish,
+          originalValue: cell.value,
+          hasError: false,
+          sourceCell,
+          sourceSheet,
+          sourceFile,
+          sourceFormula,
+        })
+      }
+      if (!hasDishInRow && colAText !== '') {
+        // Fila con texto en A pero sin platos en B-F: podría ser etiqueta o nota
+        // No hacer nada, solo continuar
+      }
+      continue
+    }
+
+    // 5. Etiqueta de semana sin fechas (ej. "SEMANA 1" sola) - solo para menú anual
+    if (isWeekLike && !hasDates) {
+      if (currentBlock === null) {
+        currentBlock = {
+          labelRow: rowNumber,
+          weekLabel: colAText,
+          headerType: colACanonical === 'opcion plato' ? 'opcion_plato' : 'semana',
+          dates: [],
+          weekStartDate: '',
+          entries: [],
+          feriadoDates: [],
+          currentCategory: null,
+        }
+      } else if (currentBlock.dates.length === 0 && currentBlock.entries.length === 0) {
+        currentBlock.weekLabel = colAText
+        currentBlock.headerType = colACanonical === 'opcion plato' ? 'opcion_plato' : 'semana'
+      } else {
+        closeBlock()
+        currentBlock = {
+          labelRow: rowNumber,
+          weekLabel: colAText,
+          headerType: colACanonical === 'opcion plato' ? 'opcion_plato' : 'semana',
+          dates: [],
+          weekStartDate: '',
+          entries: [],
+          feriadoDates: [],
+          currentCategory: null,
+        }
       }
       continue
     }
   }
 
-  closeWeek()
+  closeBlock()
 
   stats.weekBlocks = weeks.length
+  stats.calendarWeeks = calendarWeeksSet.size
+  stats.businessDays = businessDaysSet.size
+  stats.feriadoDays = feriadoDaysSet.size
 
   return {
     weeks,

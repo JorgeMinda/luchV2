@@ -1,10 +1,9 @@
--- Migración 002: Políticas RLS (Row Level Security) para multi-institución (F.1)
--- Todas las tablas tienen RLS habilitado y políticas basadas en school_id
--- vinculado a auth.users a través de school_users
+-- Migración 002: Políticas RLS (Row Level Security) para Single-Tenant (F.1)
+-- Todas las tablas tienen RLS habilitado y políticas basadas en auth.uid() + role desde public.users
+-- NO hay school_id - aislamiento por usuario autenticado y rol
 
 -- Habilitar RLS en todas las tablas
-ALTER TABLE schools ENABLE ROW LEVEL SECURITY;
-ALTER TABLE school_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ingredients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dishes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dish_recipes ENABLE ROW LEVEL SECURITY;
@@ -16,413 +15,263 @@ ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE consumptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE import_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE imported_rows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE import_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Función auxiliar: obtener school_id del usuario actual
--- Un usuario puede pertenecer a múltiples escuelas; usamos la primera activa
--- o la que coincida con el contexto de la request (header x-school-id en producción)
-CREATE OR REPLACE FUNCTION current_user_school_id()
-RETURNS UUID AS $$
+-- ============================================================
+-- FUNCIONES AUXILIARES
+-- ============================================================
+
+-- Obtener rol del usuario actual desde public.users
+CREATE OR REPLACE FUNCTION current_user_role()
+RETURNS TEXT AS $$
 DECLARE
-    v_school_id UUID;
+    v_role TEXT;
 BEGIN
-    -- Intenta obtener school_id del header de la request (para APIs)
-    -- En Supabase, se puede acceder via current_setting
-    BEGIN
-        v_school_id := nullif(current_setting('request.header.x-school-id', true), '')::uuid;
-        IF v_school_id IS NOT NULL THEN
-            -- Verifica que el usuario tenga acceso a esta escuela
-            IF EXISTS (
-                SELECT 1 FROM school_users
-                WHERE user_id = auth.uid() AND school_id = v_school_id AND is_active
-            ) THEN
-                RETURN v_school_id;
-            END IF;
-        END IF;
-    EXCEPTION WHEN OTHERS THEN
-        -- Ignora errores de parsing del header
-    END;
-
-    -- Fallback: primera escuela activa del usuario
-    SELECT school_id INTO v_school_id
-    FROM school_users
-    WHERE user_id = auth.uid() AND is_active
-    LIMIT 1;
-
-    RETURN v_school_id;
+    SELECT role INTO v_role
+    FROM public.users
+    WHERE id = auth.uid() AND is_active;
+    RETURN v_role;
+EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Función auxiliar: verificar si el usuario es admin de la escuela
-CREATE OR REPLACE FUNCTION is_school_admin(p_school_id UUID)
+-- Verificar si el usuario actual es admin
+CREATE OR REPLACE FUNCTION is_current_user_admin()
 RETURNS BOOLEAN AS $$
 BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM school_users
-        WHERE user_id = auth.uid()
-          AND school_id = p_school_id
-          AND role = 'admin'
-          AND is_active
-    );
+    RETURN current_user_role() = 'admin';
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Función auxiliar: verificar si el usuario pertenece a la escuela (cualquier rol)
-CREATE OR REPLACE FUNCTION is_school_member(p_school_id UUID)
+-- Verificar si el usuario actual es canteen o admin
+CREATE OR REPLACE FUNCTION is_current_user_canteen_or_admin()
 RETURNS BOOLEAN AS $$
 BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM school_users
-        WHERE user_id = auth.uid()
-          AND school_id = p_school_id
-          AND is_active
-    );
+    RETURN current_user_role() IN ('admin', 'canteen');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Verificar si el usuario actual es parent
+CREATE OR REPLACE FUNCTION is_current_user_parent()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN current_user_role() = 'parent';
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================================
--- POLÍTICAS PARA SCHOOLS
+-- POLÍTICAS PARA USERS
 -- ============================================================
--- Los admins de escuela pueden ver/editar su escuela
-CREATE POLICY "schools_select_admin" ON schools
-    FOR SELECT USING (
-        id = current_user_school_id() AND is_school_admin(id)
-    );
+-- Usuario ve su propio perfil
+CREATE POLICY "users_select_own" ON users
+    FOR SELECT USING (id = auth.uid());
 
-CREATE POLICY "schools_update_admin" ON schools
-    FOR UPDATE USING (
-        id = current_user_school_id() AND is_school_admin(id)
-    );
+-- Admins ven todos los perfiles
+CREATE POLICY "users_select_admin" ON users
+    FOR SELECT USING (is_current_user_admin());
 
--- ============================================================
--- POLÍTICAS PARA SCHOOL_USERS
--- ============================================================
--- Admins pueden gestionar usuarios de su escuela
-CREATE POLICY "school_users_select_admin" ON school_users
-    FOR SELECT USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+-- Admins pueden actualizar cualquier perfil
+CREATE POLICY "users_update_admin" ON users
+    FOR UPDATE USING (is_current_user_admin());
 
-CREATE POLICY "school_users_insert_admin" ON school_users
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
-
-CREATE POLICY "school_users_update_admin" ON school_users
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
-
-CREATE POLICY "school_users_delete_admin" ON school_users
-    FOR DELETE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+-- Usuario puede actualizar su propio perfil (campos limitados via app logic)
+CREATE POLICY "users_update_own" ON users
+    FOR UPDATE USING (id = auth.uid());
 
 -- ============================================================
 -- POLÍTICAS PARA INGREDIENTS
 -- ============================================================
--- Miembros de la escuela pueden ver ingredientes
-CREATE POLICY "ingredients_select_member" ON ingredients
+-- Todos los usuarios autenticados pueden ver ingredientes activos
+CREATE POLICY "ingredients_select_authenticated" ON ingredients
     FOR SELECT USING (
-        school_id = current_user_school_id() AND is_school_member(school_id)
+        auth.uid() IS NOT NULL AND is_active
     );
 
--- Solo admins y canteen pueden insertar/actualizar
+-- Solo admins y canteen pueden insertar
 CREATE POLICY "ingredients_insert_canteen_admin" ON ingredients
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = ingredients.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
+-- Solo admins y canteen pueden actualizar
 CREATE POLICY "ingredients_update_canteen_admin" ON ingredients
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = ingredients.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR UPDATE USING (is_current_user_canteen_admin());
 
+-- Solo admins pueden eliminar (borrado lógico via update)
 CREATE POLICY "ingredients_delete_admin" ON ingredients
-    FOR DELETE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+    FOR DELETE USING (is_current_user_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA DISHES
 -- ============================================================
-CREATE POLICY "dishes_select_member" ON dishes
+-- Todos los usuarios autenticados pueden ver platos activos
+CREATE POLICY "dishes_select_authenticated" ON dishes
     FOR SELECT USING (
-        school_id = current_user_school_id() AND is_school_member(school_id)
+        auth.uid() IS NOT NULL AND is_active
     );
 
+-- Solo admins y canteen pueden insertar
 CREATE POLICY "dishes_insert_canteen_admin" ON dishes
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = dishes.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
+-- Solo admins y canteen pueden actualizar
 CREATE POLICY "dishes_update_canteen_admin" ON dishes
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = dishes.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR UPDATE USING (is_current_user_canteen_admin());
 
+-- Solo admins pueden eliminar (borrado lógico via update)
 CREATE POLICY "dishes_delete_admin" ON dishes
-    FOR DELETE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+    FOR DELETE USING (is_current_user_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA DISH_RECIPES
 -- ============================================================
-CREATE POLICY "dish_recipes_select_member" ON dish_recipes
+-- Todos los usuarios autenticados pueden ver recetas activas
+CREATE POLICY "dish_recipes_select_authenticated" ON dish_recipes
     FOR SELECT USING (
-        school_id = current_user_school_id() AND is_school_member(school_id)
+        auth.uid() IS NOT NULL AND is_active
     );
 
+-- Solo admins y canteen pueden insertar
 CREATE POLICY "dish_recipes_insert_canteen_admin" ON dish_recipes
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = dish_recipes.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
+-- Solo admins y canteen pueden actualizar
 CREATE POLICY "dish_recipes_update_canteen_admin" ON dish_recipes
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = dish_recipes.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR UPDATE USING (is_current_user_canteen_admin());
 
+-- Solo admins pueden eliminar (borrado lógico via update)
 CREATE POLICY "dish_recipes_delete_admin" ON dish_recipes
-    FOR DELETE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+    FOR DELETE USING (is_current_user_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA RECIPE_INGREDIENTS
 -- ============================================================
-CREATE POLICY "recipe_ingredients_select_member" ON recipe_ingredients
+-- Todos los usuarios autenticados pueden ver ingredientes de receta activos
+CREATE POLICY "recipe_ingredients_select_authenticated" ON recipe_ingredients
     FOR SELECT USING (
-        school_id = current_user_school_id() AND is_school_member(school_id)
+        auth.uid() IS NOT NULL AND is_active
     );
 
+-- Solo admins y canteen pueden insertar
 CREATE POLICY "recipe_ingredients_insert_canteen_admin" ON recipe_ingredients
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = recipe_ingredients.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
+-- Solo admins y canteen pueden actualizar
 CREATE POLICY "recipe_ingredients_update_canteen_admin" ON recipe_ingredients
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = recipe_ingredients.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR UPDATE USING (is_current_user_canteen_admin());
 
+-- Solo admins pueden eliminar (borrado lógico via update)
 CREATE POLICY "recipe_ingredients_delete_admin" ON recipe_ingredients
-    FOR DELETE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+    FOR DELETE USING (is_current_user_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA MEAL_COMPOSITION_TEMPLATES
 -- ============================================================
-CREATE POLICY "meal_comp_templates_select_member" ON meal_composition_templates
+-- Todos los usuarios autenticados pueden ver plantillas activas
+CREATE POLICY "meal_comp_templates_select_authenticated" ON meal_composition_templates
     FOR SELECT USING (
-        school_id = current_user_school_id() AND is_school_member(school_id)
+        auth.uid() IS NOT NULL AND is_active
     );
 
+-- Solo admins y canteen pueden insertar
 CREATE POLICY "meal_comp_templates_insert_canteen_admin" ON meal_composition_templates
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = meal_composition_templates.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
+-- Solo admins y canteen pueden actualizar
 CREATE POLICY "meal_comp_templates_update_canteen_admin" ON meal_composition_templates
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = meal_composition_templates.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR UPDATE USING (is_current_user_canteen_admin());
 
+-- Solo admins pueden eliminar (borrado lógico via update)
 CREATE POLICY "meal_comp_templates_delete_admin" ON meal_composition_templates
-    FOR DELETE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+    FOR DELETE USING (is_current_user_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA MEAL_COMPOSITION_COMPONENTS
 -- ============================================================
-CREATE POLICY "meal_comp_components_select_member" ON meal_composition_components
+-- Todos los usuarios autenticados pueden ver componentes activos
+CREATE POLICY "meal_comp_components_select_authenticated" ON meal_composition_components
     FOR SELECT USING (
-        school_id = current_user_school_id() AND is_school_member(school_id)
+        auth.uid() IS NOT NULL AND is_active
     );
 
+-- Solo admins y canteen pueden insertar
 CREATE POLICY "meal_comp_components_insert_canteen_admin" ON meal_composition_components
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = meal_composition_components.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
+-- Solo admins y canteen pueden actualizar
 CREATE POLICY "meal_comp_components_update_canteen_admin" ON meal_composition_components
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = meal_composition_components.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR UPDATE USING (is_current_user_canteen_admin());
 
+-- Solo admins pueden eliminar (borrado lógico via update)
 CREATE POLICY "meal_comp_components_delete_admin" ON meal_composition_components
-    FOR DELETE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+    FOR DELETE USING (is_current_user_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA MENU_PLAN_CELLS (F.6 ServiceType)
 -- ============================================================
-CREATE POLICY "menu_plan_cells_select_member" ON menu_plan_cells
+-- Todos los usuarios autenticados pueden ver celdas activas
+CREATE POLICY "menu_plan_cells_select_authenticated" ON menu_plan_cells
     FOR SELECT USING (
-        school_id = current_user_school_id() AND is_school_member(school_id)
+        auth.uid() IS NOT NULL AND is_active
     );
 
+-- Solo admins y canteen pueden insertar
 CREATE POLICY "menu_plan_cells_insert_canteen_admin" ON menu_plan_cells
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = menu_plan_cells.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
+-- Solo admins y canteen pueden actualizar
 CREATE POLICY "menu_plan_cells_update_canteen_admin" ON menu_plan_cells
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = menu_plan_cells.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR UPDATE USING (is_current_user_canteen_admin());
 
+-- Solo admins pueden eliminar (borrado lógico via update)
 CREATE POLICY "menu_plan_cells_delete_admin" ON menu_plan_cells
-    FOR DELETE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+    FOR DELETE USING (is_current_user_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA STUDENTS
 -- ============================================================
--- Miembros pueden ver estudiantes de su escuela
-CREATE POLICY "students_select_member" ON students
+-- Admins y canteen ven todos los estudiantes activos
+CREATE POLICY "students_select_canteen_admin" ON students
     FOR SELECT USING (
-        school_id = current_user_school_id() AND is_school_member(school_id)
+        is_current_user_canteen_admin() AND is_active
     );
 
--- Padres solo pueden ver sus propios hijos
+-- Padres ven solo sus propios hijos
 CREATE POLICY "students_select_parent" ON students
     FOR SELECT USING (
-        parent_id = auth.uid() AND school_id = current_user_school_id()
+        parent_id = auth.uid() AND is_active
     );
 
--- Admins y canteen pueden insertar/actualizar
+-- Admins y canteen pueden insertar
 CREATE POLICY "students_insert_canteen_admin" ON students
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = students.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
+-- Admins y canteen pueden actualizar
 CREATE POLICY "students_update_canteen_admin" ON students
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = students.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR UPDATE USING (is_current_user_canteen_admin());
 
+-- Solo admins pueden eliminar (borrado lógico via update)
 CREATE POLICY "students_delete_admin" ON students
-    FOR DELETE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+    FOR DELETE USING (is_current_user_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA TRANSACTIONS
 -- ============================================================
--- Padres pueden ver sus transacciones
+-- Padres ven sus propias transacciones
 CREATE POLICY "transactions_select_parent" ON transactions
-    FOR SELECT USING (
-        parent_id = auth.uid() AND school_id = current_user_school_id()
-    );
+    FOR SELECT USING (parent_id = auth.uid());
 
 -- Admins y canteen ven todas
 CREATE POLICY "transactions_select_canteen_admin" ON transactions
-    FOR SELECT USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = transactions.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR SELECT USING (is_current_user_canteen_admin());
 
 -- Padres crean transacciones (solicitudes de recarga)
 CREATE POLICY "transactions_insert_parent" ON transactions
-    FOR INSERT WITH CHECK (
-        parent_id = auth.uid() AND school_id = current_user_school_id()
-    );
+    FOR INSERT WITH CHECK (parent_id = auth.uid());
 
 -- Solo admins pueden aprobar/rechazar
 CREATE POLICY "transactions_update_admin" ON transactions
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND is_school_admin(school_id)
-    );
+    FOR UPDATE USING (is_current_user_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA CONSUMPTIONS
@@ -431,88 +280,52 @@ CREATE POLICY "transactions_update_admin" ON transactions
 CREATE POLICY "consumptions_select_parent" ON consumptions
     FOR SELECT USING (
         student_id IN (
-            SELECT id FROM students WHERE parent_id = auth.uid() AND school_id = current_user_school_id()
+            SELECT id FROM students WHERE parent_id = auth.uid()
         )
     );
 
 -- Admins y canteen ven todos
 CREATE POLICY "consumptions_select_canteen_admin" ON consumptions
-    FOR SELECT USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = consumptions.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR SELECT USING (is_current_user_canteen_admin());
 
 -- Canteen registra consumos
 CREATE POLICY "consumptions_insert_canteen" ON consumptions
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = consumptions.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA IMPORT_BATCHES
 -- ============================================================
 -- Admins y canteen gestionan importaciones
 CREATE POLICY "import_batches_select_canteen_admin" ON import_batches
-    FOR SELECT USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = import_batches.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR SELECT USING (is_current_user_canteen_admin());
 
 CREATE POLICY "import_batches_insert_canteen_admin" ON import_batches
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = import_batches.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
 CREATE POLICY "import_batches_update_canteen_admin" ON import_batches
-    FOR UPDATE USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = import_batches.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR UPDATE USING (is_current_user_canteen_admin());
+
+-- ============================================================
+-- POLÍTICAS PARA IMPORTED_ROWS
+-- ============================================================
+-- Admins y canteen ven filas importadas
+CREATE POLICY "imported_rows_select_canteen_admin" ON imported_rows
+    FOR SELECT USING (is_current_user_canteen_admin());
+
+-- Sistema inserta filas durante importación (via service role o canteen/admin)
+CREATE POLICY "imported_rows_insert_canteen_admin" ON imported_rows
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
 -- ============================================================
 -- POLÍTICAS PARA IMPORT_AUDIT_LOGS
 -- ============================================================
+-- Admins y canteen ven logs de auditoría
 CREATE POLICY "import_audit_logs_select_canteen_admin" ON import_audit_logs
-    FOR SELECT USING (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = import_audit_logs.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR SELECT USING (is_current_user_canteen_admin());
 
+-- Sistema inserta logs durante importación
 CREATE POLICY "import_audit_logs_insert_canteen_admin" ON import_audit_logs
-    FOR INSERT WITH CHECK (
-        school_id = current_user_school_id() AND
-        EXISTS (
-            SELECT 1 FROM school_users
-            WHERE user_id = auth.uid() AND school_id = import_audit_logs.school_id
-              AND role IN ('admin', 'canteen') AND is_active
-        )
-    );
+    FOR INSERT WITH CHECK (is_current_user_canteen_admin());
 
 -- ============================================================
 -- POLÍTICA ESPECIAL: Service Role (para migraciones y admin backend)
@@ -521,6 +334,7 @@ CREATE POLICY "import_audit_logs_insert_canteen_admin" ON import_audit_logs
 -- No se necesitan políticas explícitas para service_role.
 
 -- Comentarios finales
-COMMENT ON FUNCTION current_user_school_id() IS 'Obtiene school_id del usuario actual desde header x-school-id o primera escuela activa';
-COMMENT ON FUNCTION is_school_admin(UUID) IS 'Verifica si el usuario actual es admin de la escuela dada';
-COMMENT ON FUNCTION is_school_member(UUID) IS 'Verifica si el usuario actual pertenece a la escuela dada (cualquier rol activo)';
+COMMENT ON FUNCTION current_user_role() IS 'Obtiene el rol del usuario actual desde public.users';
+COMMENT ON FUNCTION is_current_user_admin() IS 'Verifica si el usuario actual es admin';
+COMMENT ON FUNCTION is_current_user_canteen_or_admin() IS 'Verifica si el usuario actual es canteen o admin';
+COMMENT ON FUNCTION is_current_user_parent() IS 'Verifica si el usuario actual es parent';

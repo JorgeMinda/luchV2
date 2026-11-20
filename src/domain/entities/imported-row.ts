@@ -10,15 +10,30 @@ export type ImportedRowEntityType =
   | 'payment'
   | 'consumption'
 
+export type ImportedRowStatus = 'valid' | 'warning' | 'error'
+export type ImportedRowSeverity = 'VALID' | 'WARNING' | 'ERROR'
+
 export interface ImportedRow {
-  readonly batchId: string
-  readonly rowNumber: number
-  readonly originalData: Record<string, unknown>
-  readonly normalizedData: Record<string, unknown>
-  readonly incidents: ImportIncident[]
-  readonly severity: 'VALID' | 'WARNING' | 'ERROR'
-  readonly entityType: ImportedRowEntityType
-  readonly sourceType?: SourceType
-  readonly provenance?: ImportProvenance
-  readonly analysisVersion?: string
+  id: string
+  batchId: string
+  rowIndex: number
+  rowNumber: number // Alias for backward compatibility
+  sheetName?: string
+  sourceType: SourceType
+  rawData: Record<string, unknown>
+  originalData: Record<string, unknown> // Alias for backward compatibility
+  normalizedData?: Record<string, unknown>
+  status: ImportedRowStatus
+  severity: ImportedRowSeverity // Alias for backward compatibility
+  errorMessage?: string
+  warningMessages?: string[]
+  incidents?: ImportIncident[] // For backward compatibility
+  entityType?: ImportedRowEntityType // For backward compatibility
+  provenance?: ImportProvenance
+  analysisVersion?: string
+  createdAt: string
+}
+
+export interface NewImportedRow extends Omit<ImportedRow, 'id' | 'createdAt' | 'rowNumber' | 'severity' | 'originalData' | 'incidents' | 'entityType'> {
+  id?: string
 }

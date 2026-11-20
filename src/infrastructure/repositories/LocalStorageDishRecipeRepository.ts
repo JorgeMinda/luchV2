@@ -1,10 +1,7 @@
-import type { DishRecipe, RecipeIngredient } from '../../domain/entities'
+import type { DishRecipe, RecipeIngredient, DishRecipeInput } from '../../domain/entities'
 import type { Money } from '../../domain/value-objects/money'
 import { fromDollars } from '../../domain/value-objects/money'
-import type {
-  DishRecipeInput,
-  DishRecipeRepository,
-} from '../../application/ports/DishRecipeRepository'
+import type { DishRecipeRepository } from '../../application/ports/DishRecipeRepository'
 import {
   readStoredCollection,
   writeStoredCollection,
@@ -39,7 +36,8 @@ function isRecipeIngredient(value: unknown): value is RecipeIngredient {
     candidate.purchaseQuantity > 0 &&
     typeof candidate.recipeQuantity === 'number' &&
     Number.isFinite(candidate.recipeQuantity) &&
-    candidate.recipeQuantity >= 0
+    candidate.recipeQuantity >= 0 &&
+    typeof candidate.isActive === 'boolean'
   )
 }
 
@@ -68,7 +66,8 @@ function isDishRecipe(value: unknown): value is DishRecipe {
     typeof candidate.source === 'string' &&
     typeof candidate.updatedAt === 'string' &&
     Array.isArray(candidate.ingredients) &&
-    candidate.ingredients.every(isRecipeIngredient)
+    candidate.ingredients.every(isRecipeIngredient) &&
+    typeof candidate.isActive === 'boolean'
   )
 }
 
@@ -96,6 +95,15 @@ export class LocalStorageDishRecipeRepository
     const saved = recipes.map((recipe) => ({
       ...recipe,
       updatedAt,
+      isActive: true,
+      deletedAt: undefined,
+      deletedBy: undefined,
+      ingredients: recipe.ingredients.map((ing) => ({
+        ...ing,
+        isActive: true,
+        deletedAt: undefined,
+        deletedBy: undefined,
+      })),
     }))
     const savedDishIds = new Set(saved.map((recipe) => recipe.dishId))
 
@@ -111,10 +119,16 @@ export class LocalStorageDishRecipeRepository
   }
 
   async removeByDishId(dishId: string): Promise<void> {
-    this.recipes = this.recipes.filter(
-      (recipe) => recipe.dishId !== dishId,
-    )
-    this.persist()
+    const index = this.recipes.findIndex((r) => r.dishId === dishId)
+    if (index !== -1) {
+      this.recipes[index] = {
+        ...this.recipes[index],
+        isActive: false,
+        deletedAt: new Date().toISOString(),
+        deletedBy: 'local-user',
+      }
+      this.persist()
+    }
   }
 
   private persist() {

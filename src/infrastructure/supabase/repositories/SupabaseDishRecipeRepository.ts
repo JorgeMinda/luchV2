@@ -1,25 +1,14 @@
-import type { DishRecipe, RecipeIngredient, RecipeServiceType } from '../../../domain/entities'
+import type { DishRecipe, RecipeIngredient } from '../../../domain/entities'
 import type { DishRecipeRepository, DishRecipeInput } from '../../../application/ports/DishRecipeRepository'
 import { SupabaseRepositoryBase } from './SupabaseRepositoryBase'
 import type { TypedSupabaseClient } from './SupabaseRepositoryBase'
 import { fromCents } from '../../../domain/value-objects/money'
+import type { DishRecipesRow, DishRecipesInsert, DishRecipesUpdate, RecipeIngredientsRow, RecipeIngredientsInsert, RecipeIngredientsUpdate } from '../database.types'
 
 /**
  * Mapea fila de recipe_ingredients a RecipeIngredient de dominio.
  */
-function mapRowToRecipeIngredient(row: {
-  id: string
-  ingredient_id: string | null
-  name: string
-  purchase_presentation: string
-  purchase_price_cents: number
-  purchase_quantity: number
-  recipe_quantity: number
-  purchase_unit_cost_raw: number | null
-  source_formula: string | null
-  source_cell: string | null
-  yield_percentage: number | null
-}): RecipeIngredient {
+function mapRowToRecipeIngredient(row: RecipeIngredientsRow): RecipeIngredient {
   return {
     id: row.id,
     name: row.name,
@@ -31,6 +20,9 @@ function mapRowToRecipeIngredient(row: {
     sourceFormula: row.source_formula ?? undefined,
     sourceCell: row.source_cell ?? undefined,
     yieldPercentage: row.yield_percentage ?? undefined,
+    isActive: row.is_active,
+    deletedAt: row.deleted_at ?? undefined,
+    deletedBy: undefined,
   }
 }
 
@@ -39,19 +31,13 @@ function mapRowToRecipeIngredient(row: {
  */
 async function mapRowToDishRecipe(
   client: TypedSupabaseClient,
-  row: {
-    id: string
-    dish_id: string
-    source: string
-    service_type: RecipeServiceType
-    portions: number | null
-    updated_at: string
-  },
+  row: DishRecipesRow,
 ): Promise<DishRecipe> {
   const { data: ingredients, error } = await client
     .from('recipe_ingredients')
     .select('*')
     .eq('recipe_id', row.id)
+    .eq('is_active', true)
     .order('created_at', { ascending: true })
 
   if (error) throw error
@@ -63,12 +49,17 @@ async function mapRowToDishRecipe(
     updatedAt: row.updated_at,
     serviceType: row.service_type,
     portions: row.portions ?? undefined,
+    isActive: row.is_active,
+    deletedAt: row.deleted_at ?? undefined,
+    deletedBy: undefined,
   }
 }
 
 /**
  * Repositorio Supabase para DishRecipes.
- * Respeta RLS por school_id (F.1), incluye ServiceType (F.6) y precisión sub-centavo (F.7).
+ * Single-tenant (F.1): sin school_id, RLS por auth.uid() + role.
+ * Incluye ServiceType (F.6) y precisión sub-centavo (F.7).
+ * Borrado lógico (is_active, deleted_at, deleted_by).
  */
 export class SupabaseDishRecipeRepository
   extends SupabaseRepositoryBase
@@ -85,6 +76,7 @@ export class SupabaseDishRecipeRepository
     const { data, error } = await this.client
       .from('dish_recipes')
       .select('*')
+      .eq('is_active', true)
       .order('updated_at', { ascending: false })
 
     if (error) this.handleError(error, 'listar recetas')
@@ -101,6 +93,7 @@ export class SupabaseDishRecipeRepository
       .from('dish_recipes')
       .select('*')
       .eq('dish_id', dishId)
+      .eq('is_active', true)
       .maybeSingle()
 
     if (error) this.handleError(error, 'obtener receta por plato')
@@ -116,34 +109,35 @@ export class SupabaseDishRecipeRepository
 
     for (const recipe of recipes) {
       // 1. Upsert dish_recipes
-      const { data: recipeRow, error: recipeError } = await this.client
-        .from('dish_recipes')
-        .upsert(
-          {
-            dish_id: recipe.dishId,
-            source: recipe.source,
-            service_type: recipe.serviceType,
-            portions: recipe.portions ?? null,
-          } as any,
-          { onConflict: 'school_id,dish_id', ignoreDuplicates: false },
-        )
-        .select()
-        .single() as { data: { id: string; dish_id: string; source: string; service_type: 'lunch' | 'breakfast' | 'snack'; portions: number | null; updated_at: string } | null; error: Error | null }
+      const recipeInsert: DishRecipesInsert = {
+        dish_id: recipe.dishId,
+        source: recipe.source,
+        service_type: recipe.serviceType ?? 'lunch',
+        portions: recipe.portions ?? null,
+        is_active: true,
+      }
 
-      if (recipeError) this.handleError(recipeError, 'guardar receta')
-      if (!recipeRow) throw new Error('No se pudo crear/actualizar la receta')
+      const recipeRow = await this.upsertOne<DishRecipesRow, DishRecipesInsert>(
+        'dish_recipes',
+        recipeInsert,
+        { onConflict: 'dish_id', ignoreDuplicates: false }
+      )
 
-      // 2. Delete existing recipe_ingredients for this recipe
-      const { error: deleteError } = await this.client
-        .from('recipe_ingredients')
-        .delete()
-        .eq('recipe_id', recipeRow.id)
+      // 2. Soft delete existing recipe_ingredients for this recipe
+      const currentUser = await this.getCurrentUser()
+      if (!currentUser) throw new Error('Usuario no autenticado')
 
-      if (deleteError) this.handleError(deleteError, 'limpiar ingredientes de receta')
+      const deleteUpdate: RecipeIngredientsUpdate = {
+        is_active: false,
+        deleted_at: new Date().toISOString(),
+        deleted_by: currentUser.id,
+      }
+
+      await this.updateRows<RecipeIngredientsUpdate>('recipe_ingredients', deleteUpdate, { recipe_id: recipeRow.id })
 
       // 3. Insert new recipe_ingredients
       if (recipe.ingredients.length > 0) {
-        const ingredientRows = recipe.ingredients.map((ing: RecipeIngredient) => ({
+        const ingredientRows: RecipeIngredientsInsert[] = recipe.ingredients.map((ing: RecipeIngredient) => ({
           recipe_id: recipeRow.id,
           ingredient_id: ing.id,
           name: ing.name,
@@ -155,13 +149,10 @@ export class SupabaseDishRecipeRepository
           source_formula: ing.sourceFormula ?? null,
           source_cell: ing.sourceCell ?? null,
           yield_percentage: ing.yieldPercentage ?? null,
+          is_active: true,
         }))
 
-        const { error: insertError } = await this.client
-          .from('recipe_ingredients')
-          .insert(ingredientRows as any)
-
-        if (insertError) this.handleError(insertError, 'insertar ingredientes de receta')
+        await this.insertRows<RecipeIngredientsRow, RecipeIngredientsInsert>('recipe_ingredients', ingredientRows)
       }
 
       results.push(await mapRowToDishRecipe(this.client, recipeRow))
@@ -171,21 +162,26 @@ export class SupabaseDishRecipeRepository
   }
 
   async removeByDishId(dishId: string): Promise<void> {
+    const currentUser = await this.getCurrentUser()
+    if (!currentUser) throw new Error('Usuario no autenticado')
+
     const { data: recipe, error: findError } = await this.client
       .from('dish_recipes')
       .select('id')
       .eq('dish_id', dishId)
+      .eq('is_active', true)
       .maybeSingle() as { data: { id: string } | null; error: Error | null }
 
     if (findError) this.handleError(findError, 'buscar receta para eliminar')
 
     if (recipe) {
-      const { error } = await this.client
-        .from('dish_recipes')
-        .delete()
-        .eq('id', recipe.id)
+      const update: DishRecipesUpdate = {
+        is_active: false,
+        deleted_at: new Date().toISOString(),
+        deleted_by: currentUser.id,
+      }
 
-      if (error) this.handleError(error, 'eliminar receta')
+      await this.updateRows<DishRecipesUpdate>('dish_recipes', update, { id: recipe.id })
     }
   }
 }

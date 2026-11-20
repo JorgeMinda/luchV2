@@ -34,6 +34,12 @@ export interface MealCompositionComponent {
   readonly sourceFormula?: string
   /** Celda Excel origen (ej. "E3"). */
   readonly sourceCell?: string
+  /** Borrado lógico: indica si el registro está activo. */
+  readonly isActive: boolean
+  /** Timestamp de borrado lógico. */
+  readonly deletedAt?: string
+  /** Usuario que realizó el borrado lógico. */
+  readonly deletedBy?: string
 }
 
 export interface MealCompositionTemplate {
@@ -46,6 +52,21 @@ export interface MealCompositionTemplate {
   readonly tolerance?: number
   readonly aliases?: readonly string[]
   readonly provenance?: ImportProvenance
+  /** Borrado lógico: indica si el registro está activo. */
+  readonly isActive: boolean
+  /** Timestamp de borrado lógico. */
+  readonly deletedAt?: string
+  /** Usuario que realizó el borrado lógico. */
+  readonly deletedBy?: string
+}
+
+export interface NewMealCompositionComponent extends Omit<MealCompositionComponent, 'id' | 'isActive' | 'deletedAt' | 'deletedBy'> {
+  id?: string
+}
+
+export interface NewMealCompositionTemplate extends Omit<MealCompositionTemplate, 'id' | 'components' | 'isActive' | 'deletedAt' | 'deletedBy'> {
+  id?: string
+  components: NewMealCompositionComponent[]
 }
 
 /**

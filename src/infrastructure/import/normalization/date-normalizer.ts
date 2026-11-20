@@ -166,13 +166,15 @@ export function parseDateWithContext(
  * Sistema 1900 por defecto; pasar `epoch1904: true` para libros Mac 1904.
  * Corrige el bug histórico del 1900 ficticio (serial 60): los seriales ≥ 60
  * se desplazan un día; el serial 60 (29-feb-1900, inexistente) es inválido.
+ * Rechaza seriales ≤ 0 (incluye 0 = 1899-12-31 / 1904-01-01) como fechas inválidas
+ * según F.4: no se inventan fechas ni se normalizan seriales vacíos/cero.
  */
 export function parseExcelSerialDate(
   serial: number,
   epoch1904 = false,
 ): ParsedDate {
-  if (!Number.isFinite(serial) || serial < 0) {
-    throw new Error(`Serial de fecha inválido: ${serial}`)
+  if (!Number.isFinite(serial) || serial <= 0) {
+    throw new Error(`Serial de fecha inválido o cero: ${serial}`)
   }
 
   if (!epoch1904 && serial === 60) {

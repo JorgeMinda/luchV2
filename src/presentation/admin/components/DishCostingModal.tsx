@@ -90,6 +90,9 @@ function toCalculatedIngredient(
     purchasePrice: fromDollars(parseCostNumber(ingredient.purchasePrice) ?? 0),
     purchaseQuantity: parseQuantityNumber(ingredient.purchaseQuantity) ?? 0,
     recipeQuantity: parseQuantityNumber(ingredient.recipeQuantity) ?? 0,
+    isActive: true,
+    deletedAt: undefined,
+    deletedBy: undefined,
   }
 }
 

@@ -1,3 +1,6 @@
 export interface CurrentOperatorPort {
-  getCurrentOperator(): { id: string; role: string }
+  getCurrentOperator(): Promise<{ id: string; role: string } | null>
+  isAuthenticated(): Promise<boolean>
+  getCurrentUserId(): Promise<string | null>
+  getCurrentUserRole(): Promise<string | null>
 }

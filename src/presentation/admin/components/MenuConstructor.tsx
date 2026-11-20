@@ -293,7 +293,8 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
     category: DishCategory,
     slot: number,
     dishId: string,
-  ) {    const weekStartDate = activeWeek.id
+  ) {
+    const weekStartDate = activeWeek.id
 
     setSelections((current) => {
       const next = current.filter(
@@ -307,7 +308,7 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
       )
 
       return dishId
-        ? [...next, { weekStartDate, day, category, slot, dishId }]
+        ? [...next, { weekStartDate, day, category, slot, dishId, serviceType: 'lunch' as const, isActive: true }]
         : next
     })
     setSaveError(null)

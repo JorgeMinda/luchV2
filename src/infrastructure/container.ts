@@ -1,6 +1,7 @@
 import { AutoFillWeekUseCase } from '../application/use-cases/AutoFillWeekUseCase'
 import { CheckSupabaseConnectionUseCase } from '../application/use-cases/CheckSupabaseConnectionUseCase'
 import { CloneMenuWeekUseCase } from '../application/use-cases/CloneMenuWeekUseCase'
+import { CommitImportUseCaseImpl } from '../application/use-cases/commit-import-use-case.impl'
 import { CreateMenuWeekUseCase } from '../application/use-cases/CreateMenuWeekUseCase'
 import { DeleteDishUseCase } from '../application/use-cases/DeleteDishUseCase'
 import { DuplicateMenuWeekUseCase } from '../application/use-cases/DuplicateMenuWeekUseCase'
@@ -8,10 +9,13 @@ import { ImportDishCostsUseCase } from '../application/use-cases/ImportDishCosts
 import { ImportDishesUseCase } from '../application/use-cases/ImportDishesUseCase'
 import { ImportIngredientsUseCase } from '../application/use-cases/ImportIngredientsUseCase'
 import { ImportMenuMatrixUseCase } from '../application/use-cases/ImportMenuMatrixUseCase'
+import { PersistImportUseCase } from '../application/use-cases/persist-import-use-case'
 import { SaveDishRecipeUseCase } from '../application/use-cases/SaveDishRecipeUseCase'
 import { SaveDishUseCase } from '../application/use-cases/SaveDishUseCase'
 import { SetMenuCellUseCase } from '../application/use-cases/SetMenuCellUseCase'
 import { SupabaseConnectionService } from './supabase/SupabaseConnectionService'
+import { SupabaseCurrentOperator } from './supabase/SupabaseCurrentOperator'
+import type { CurrentOperatorPort } from '../application/ports/current-operator-port'
 import {
   SupabaseIngredientRepository,
   SupabaseDishRepository,
@@ -21,7 +25,9 @@ import {
   SupabasePaymentRepository,
   SupabaseConsumptionRepository,
   SupabaseImportBatchRepository,
+  SupabaseImportedRowRepository,
   SupabaseImportAuditRepository,
+  SupabaseMealCompositionRepository,
 } from './supabase/repositories'
 import {
   LocalStorageDishRecipeRepository,
@@ -32,6 +38,7 @@ import {
   LocalStoragePaymentRepository,
   LocalStorageConsumptionRepository,
 } from './repositories/index'
+import { InMemoryImportRowStore } from './import/batch/in-memory-row-store'
 
 /**
  * Configuración del contenedor de dependencias.
@@ -70,7 +77,9 @@ function createRepositories() {
       paymentRepository: new SupabasePaymentRepository(),
       consumptionRepository: new SupabaseConsumptionRepository(),
       importBatchRepository: new SupabaseImportBatchRepository(),
+      importedRowRepository: new SupabaseImportedRowRepository(),
       importAuditRepository: new SupabaseImportAuditRepository(),
+      mealCompositionRepository: new SupabaseMealCompositionRepository(),
     }
   }
 
@@ -84,7 +93,9 @@ function createRepositories() {
     paymentRepository: new LocalStoragePaymentRepository(),
     consumptionRepository: new LocalStorageConsumptionRepository(),
     importBatchRepository: null as any, // No implementado en LocalStorage
+    importedRowRepository: null as any, // No implementado en LocalStorage
     importAuditRepository: null as any, // No implementado en LocalStorage
+    mealCompositionRepository: null as any, // No implementado en LocalStorage
   }
 }
 
@@ -96,6 +107,16 @@ function getRepositories() {
     repositories = createRepositories()
   }
   return repositories
+}
+
+// CurrentOperatorPort implementation (singleton)
+let currentOperatorPortInstance: CurrentOperatorPort | null = null
+
+function getCurrentOperatorPort(): CurrentOperatorPort {
+  if (!currentOperatorPortInstance) {
+    currentOperatorPortInstance = new SupabaseCurrentOperator()
+  }
+  return currentOperatorPortInstance
 }
 
 // Comprobación de conexión Supabase (solo lectura).
@@ -114,7 +135,12 @@ export const studentRepository = getRepositories().studentRepository
 export const paymentRepository = getRepositories().paymentRepository
 export const consumptionRepository = getRepositories().consumptionRepository
 export const importBatchRepository = getRepositories().importBatchRepository
+export const importedRowRepository = getRepositories().importedRowRepository
 export const importAuditRepository = getRepositories().importAuditRepository
+export const mealCompositionRepository = getRepositories().mealCompositionRepository
+
+// CurrentOperatorPort
+export const currentOperatorPort = getCurrentOperatorPort()
 
 // Use Cases - Ingredientes
 export const importIngredientsUseCase = new ImportIngredientsUseCase(
@@ -136,6 +162,32 @@ export const deleteDishUseCase = new DeleteDishUseCase(
   dishRepository,
   menuPlanRepository,
   dishRecipeRepository,
+)
+
+// Use Cases - Importación
+export const persistImportUseCase = new PersistImportUseCase(
+  ingredientRepository,
+  dishRepository,
+  dishRecipeRepository,
+  menuPlanRepository,
+  mealCompositionRepository,
+  importBatchRepository,
+  importAuditRepository,
+  currentOperatorPort,
+)
+
+const rowStore = new InMemoryImportRowStore()
+
+export const commitImportUseCase = new CommitImportUseCaseImpl(
+  importBatchRepository,
+  importAuditRepository,
+  rowStore,
+  ingredientRepository,
+  dishRepository,
+  dishRecipeRepository,
+  menuPlanRepository,
+  mealCompositionRepository,
+  currentOperatorPort,
 )
 
 // Use Cases - Menú
