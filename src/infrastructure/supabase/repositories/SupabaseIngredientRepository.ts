@@ -54,6 +54,17 @@ export class SupabaseIngredientRepository extends SupabaseRepositoryBase
     return (data ?? []).map(mapRowToIngredient)
   }
 
+  async listAll(): Promise<Ingredient[]> {
+    const { data, error } = await this.client
+      .from('ingredients')
+      .select('*')
+      .order('category', { ascending: true })
+      .order('product', { ascending: true })
+
+    if (error) this.handleError(error, 'listar todos los ingredientes')
+    return (data ?? []).map(mapRowToIngredient)
+  }
+
   async getById(id: string): Promise<Ingredient | null> {
     const { data, error } = await this.client
       .from('ingredients')

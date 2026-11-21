@@ -4,5 +4,6 @@ export type NewIngredient = Omit<Ingredient, 'id' | 'isActive' | 'deletedAt' | '
 
 export interface IngredientRepository {
   list(): Promise<Ingredient[]>
+  listAll(): Promise<Ingredient[]>
   importMany(ingredients: NewIngredient[]): Promise<Ingredient[]>
 }

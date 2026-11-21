@@ -52,6 +52,19 @@ export class SupabaseMenuPlanRepository
     return (data ?? []).map(mapRowToMenuPlanCell)
   }
 
+  async listAll(): Promise<MenuPlanCell[]> {
+    const { data, error } = await this.client
+      .from('menu_plan_cells')
+      .select('*')
+      .order('week_start_date', { ascending: true })
+      .order('day', { ascending: true })
+      .order('category', { ascending: true })
+      .order('slot', { ascending: true })
+
+    if (error) this.handleError(error, 'listar todas las celdas de menú')
+    return (data ?? []).map(mapRowToMenuPlanCell)
+  }
+
   async getByWeek(weekStartDate: string): Promise<MenuPlanCell[]> {
     const { data, error } = await this.client
       .from('menu_plan_cells')

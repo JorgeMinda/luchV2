@@ -1,0 +1,16 @@
+{
+  "total_records": 1000,
+  "wave1_approved": 881,
+  "pending": 119,
+  "unique_recipe_ingredients": 1000,
+  "unique_candidates_wave1": 153,
+  "match_types_wave1": {
+    "EXACT_MATCH": 881
+  },
+  "wave_assignments": {
+    "WAVE_1_AUTO": 881
+  },
+  "semantic_compat_wave1": {
+    "COMPATIBLE": 881
+  }
+}

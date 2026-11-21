@@ -108,6 +108,21 @@ export class SupabaseMealCompositionRepository
     return results
   }
 
+  async listAll(): Promise<MealCompositionTemplate[]> {
+    const { data, error } = await this.client
+      .from('meal_composition_templates')
+      .select('*')
+      .order('name', { ascending: true })
+
+    if (error) this.handleError(error, 'listar todas las plantillas de composición')
+
+    const results: MealCompositionTemplate[] = []
+    for (const template of data ?? []) {
+      results.push(await mapRowToTemplate(this.client, template))
+    }
+    return results
+  }
+
   async getById(id: string): Promise<MealCompositionTemplate | null> {
     const { data: template, error } = await this.client
       .from('meal_composition_templates')

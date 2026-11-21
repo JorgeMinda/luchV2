@@ -14,6 +14,7 @@ export interface MenuCellSelection extends MenuCellTarget {
 export interface MenuPlanRepository {
   listSnapshot(): MenuPlanCell[]
   list(): Promise<MenuPlanCell[]>
+  listAll(): Promise<MenuPlanCell[]>
   setCell(selection: MenuCellSelection): Promise<void>
   clearCell(target: MenuCellTarget): Promise<void>
   removeByDishId(dishId: string): Promise<void>

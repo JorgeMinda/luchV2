@@ -72,9 +72,8 @@ const SECTIONS = [
 export function PlatillosManagement({
   onMenuImported,
 }: PlatillosManagementProps) {
-  const [dishes, setDishes] = useState<Dish[]>(() =>
-    dishRepository.listSnapshot(),
-  )
+  const [dishes, setDishes] = useState<Dish[]>([])
+  const [costedDishIds, setCostedDishIds] = useState<Set<string>>(new Set())
   const [activeSection, setActiveSection] =
     useState<PlatillosSection>('catalog')
   const [editorDish, setEditorDish] = useState<Dish | 'new' | null>(null)
@@ -91,13 +90,29 @@ export function PlatillosManagement({
     return () => window.clearTimeout(timeout)
   }, [toast])
 
-  function refreshDishes() {
-    setDishes(dishRepository.listSnapshot())
+  async function refreshDishes() {
+    try {
+      const [dishesData, recipesData] = await Promise.all([
+        dishRepository.list(),
+        dishRecipeRepository.list(),
+      ])
+      setDishes(dishesData)
+      setCostedDishIds(new Set(recipesData.map((r) => r.dishId)))
+    } catch {
+      setToast({
+        tone: 'danger',
+        message: 'No se pudo cargar el catálogo de platillos.',
+      })
+    }
   }
+
+  useEffect(() => {
+    void refreshDishes()
+  }, [])
 
   async function handleSaveDish(input: DishInput) {
     await saveDishUseCase.execute(input)
-    refreshDishes()
+    await refreshDishes()
     setEditorDish(null)
     setToast({
       tone: 'success',
@@ -109,7 +124,7 @@ export function PlatillosManagement({
 
   async function handleDeleteDish(dish: Dish) {
     await deleteDishUseCase.execute(dish.id)
-    refreshDishes()
+    await refreshDishes()
     setDeletingDish(null)
     setToast({
       tone: 'success',
@@ -117,8 +132,8 @@ export function PlatillosManagement({
     })
   }
 
-  function handleImported(count: number) {
-    refreshDishes()
+  async function handleImported(count: number) {
+    await refreshDishes()
     setActiveSection('catalog')
     setToast({
       tone: 'success',
@@ -126,8 +141,8 @@ export function PlatillosManagement({
     })
   }
 
-  function handleMenuImported(result: ImportMenuMatrixResult) {
-    refreshDishes()
+  async function handleMenuImported(result: ImportMenuMatrixResult) {
+    await refreshDishes()
     onMenuImported(result)
   }
 
@@ -149,26 +164,22 @@ export function PlatillosManagement({
       tone: result.importedRecipes > 0 ? 'success' : 'danger',
       message:
         result.importedRecipes > 0
-          ? `Se importaron ${recipesLabel} con ${ingredientsLabel}.${
-              skippedTotal > 0
-                ? ` ${skippedTotal} ${skippedTotal === 1 ? 'receta quedó' : 'recetas quedaron'} sin asignar.`
-                : ''
-            }`
+          ? `Se importaron ${recipesLabel} con ${ingredientsLabel}.${skippedTotal > 0 ? ` ${skippedTotal} ${skippedTotal === 1 ? 'receta quedó' : 'recetas quedaron'} sin asignar.` : ''}`
           : 'No se pudo importar ninguna receta. Revisa el mapeo de platillos.',
     })
   }
 
-  function handleOpenCosting(dish: Dish) {
+  async function handleOpenCosting(dish: Dish) {
     setCostingDish(dish)
+    const recipes = await dishRecipeRepository.list()
     setCostingRecipe(
-      dishRecipeRepository
-        .listSnapshot()
-        .find((recipe) => recipe.dishId === dish.id) ?? null,
+      recipes.find((recipe) => recipe.dishId === dish.id) ?? null,
     )
   }
 
-  function handleRecipeSaved(recipe: DishRecipe) {
+  async function handleRecipeSaved(recipe: DishRecipe) {
     setCostingRecipe(recipe)
+    await refreshDishes()
     setToast({
       tone: 'success',
       message: 'Los costos de la receta se actualizaron correctamente.',
@@ -183,7 +194,7 @@ export function PlatillosManagement({
   async function handleLoadSamples() {
     try {
       await importDishesUseCase.execute(sampleDishes)
-      refreshDishes()
+      await refreshDishes()
       setToast({
         tone: 'success',
         message: 'Catálogo de ejemplo cargado. Puedes editar o eliminar sus platillos.',
@@ -199,11 +210,6 @@ export function PlatillosManagement({
   const activeCategoryCount = new Set(
     dishes.map((dish) => dish.category),
   ).size
-  const costedDishIds = new Set(
-    dishRecipeRepository
-      .listSnapshot()
-      .map((recipe) => recipe.dishId),
-  )
 
   return (
     <div className="space-y-4">

@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChefHat,
   Clock3,
+  Database,
   ListOrdered,
   ShieldCheck,
   TriangleAlert,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react'
 import { getBalanceStatus } from '../../domain/value-objects/balance'
 import type { ImportMenuMatrixResult } from '../../application/use-cases/ImportMenuMatrixUseCase'
+import { ImportedDataManagement } from './components/ImportedDataManagement'
 import { InventoryManagement } from './components/InventoryManagement'
 import { MenuConstructor } from './components/MenuConstructor'
 import { PlatillosManagement } from './components/PlatillosManagement'
@@ -49,6 +51,12 @@ const TABS = [
     shortLabel: 'Stock',
     label: 'Inventario',
     icon: Boxes,
+  },
+  {
+    id: 'imported-data',
+    shortLabel: 'Datos',
+    label: 'Datos importados',
+    icon: Database,
   },
   {
     id: 'transfers',
@@ -273,7 +281,7 @@ export function AdminDashboard() {
       <div
         role="tablist"
         aria-label="Secciones del panel de administración"
-        className="mt-5 grid grid-cols-2 gap-1.5 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm sm:grid-cols-3 lg:grid-cols-5"
+        className="mt-5 grid grid-cols-2 gap-1.5 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm sm:grid-cols-3 lg:grid-cols-6"
       >
         {TABS.map((tab) => {
           const Icon = tab.icon
@@ -286,7 +294,7 @@ export function AdminDashboard() {
               role="tab"
               aria-selected={isActive}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 last:col-span-2 sm:last:col-span-1 ${
+              className={`flex items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 ${
                 isActive
                   ? 'bg-brand-700 text-white shadow-sm'
                   : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -317,6 +325,8 @@ export function AdminDashboard() {
         )}
 
         {activeTab === 'inventory' && <InventoryManagement />}
+
+        {activeTab === 'imported-data' && <ImportedDataManagement />}
 
         {activeTab === 'transfers' && (
           <TransferVerification

@@ -88,6 +88,21 @@ export class SupabaseDishRecipeRepository
     return results
   }
 
+  async listAll(): Promise<DishRecipe[]> {
+    const { data, error } = await this.client
+      .from('dish_recipes')
+      .select('*')
+      .order('updated_at', { ascending: false })
+
+    if (error) this.handleError(error, 'listar todas las recetas')
+
+    const results: DishRecipe[] = []
+    for (const recipe of data ?? []) {
+      results.push(await mapRowToDishRecipe(this.client, recipe))
+    }
+    return results
+  }
+
   async getByDishId(dishId: string): Promise<DishRecipe | null> {
     const { data: recipe, error } = await this.client
       .from('dish_recipes')

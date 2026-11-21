@@ -5,6 +5,7 @@ export type DishRecipeInput = Omit<DishRecipe, 'updatedAt' | 'isActive' | 'delet
 export interface DishRecipeRepository {
   listSnapshot(): DishRecipe[]
   list(): Promise<DishRecipe[]>
+  listAll(): Promise<DishRecipe[]>
   getByDishId(dishId: string): Promise<DishRecipe | null>
   saveMany(recipes: DishRecipeInput[]): Promise<DishRecipe[]>
   removeByDishId(dishId: string): Promise<void>

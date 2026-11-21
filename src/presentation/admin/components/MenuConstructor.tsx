@@ -104,10 +104,8 @@ function formatShortDate(isoDate: string): string {
 }
 
 export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
-  const [dishes] = useState<Dish[]>(() => dishRepository.listSnapshot())
-  const [selections, setSelections] = useState<MenuPlanCell[]>(() =>
-    menuPlanRepository.listSnapshot(),
-  )
+  const [dishes, setDishes] = useState<Dish[]>([])
+  const [selections, setSelections] = useState<MenuPlanCell[]>([])
   /** Semanas creadas que todavía no tienen celdas. */
   const [extraWeekIds, setExtraWeekIds] = useState<string[]>([])
   const [activeMonth, setActiveMonth] = useState(() =>
@@ -118,25 +116,7 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
     for (const id of extraWeekIds) ids.add(id)
     return [...ids].sort().map((id) => getMenuWeek(id))
   }, [selections, extraWeekIds])
-  const [activeWeekId, setActiveWeekId] = useState(() => {
-    const currentMonth = monthOf(getTodayLocalISO())
-    const candidates = getMenuWeeks(selections).filter((week) =>
-      week.id.startsWith(currentMonth),
-    )
-    const weekWithData = [...candidates]
-      .reverse()
-      .find((week) =>
-        selections.some(
-          (selection) => selection.weekStartDate === week.id,
-        ),
-      )
-
-    return (
-      weekWithData?.id ??
-      candidates[0]?.id ??
-      getMenuWeeks(selections)[0].id
-    )
-  })
+  const [activeWeekId, setActiveWeekId] = useState<string>('')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isAutoFilling, setIsAutoFilling] = useState(false)
   const [autoFillNotice, setAutoFillNotice] = useState<{
@@ -147,44 +127,60 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
   const [newWeekReference, setNewWeekReference] =
     useState<WeekStartDate | null>(null)
 
-  /** Solo las semanas del mes activo, ordenadas por weekStartDate ASC. */
-  const monthWeeks = useMemo(
-    () =>
-      weeks
-        .filter((week) => week.id.startsWith(activeMonth))
-        .sort((a, b) => a.id.localeCompare(b.id)),
-    [weeks, activeMonth],
-  )
-
-  /** Semanas que existen realmente (con celdas o creadas vacías). */
-  const existingWeeks = useMemo(() => {
-    const ids = new Set(extraWeekIds)
-    for (const selection of selections) {
-      ids.add(selection.weekStartDate)
+  // Cargar datos iniciales al montar
+  useEffect(() => {
+    let cancelled = false
+    async function loadInitialData() {
+      try {
+        const [dishesData, selectionsData] = await Promise.all([
+          dishRepository.list(),
+          menuPlanRepository.list(),
+        ])
+        if (!cancelled) {
+          setDishes(dishesData)
+          setSelections(selectionsData)
+          // Si el mes actual no tiene celdas pero hay datos cargados,
+          // posicionar en la última semana con registros
+          const currentMonth = monthOf(getTodayLocalISO())
+          const candidates = getMenuWeeks(selectionsData).filter((week) =>
+            week.id.startsWith(currentMonth),
+          )
+          if (candidates.length === 0 && selectionsData.length > 0) {
+            const allWeeks = getMenuWeeks(selectionsData)
+            const lastWeek = [...allWeeks].reverse().find((week) =>
+              selectionsData.some(
+                (selection) => selection.weekStartDate === week.id,
+              ),
+            )
+            if (lastWeek) {
+              setActiveWeekId(lastWeek.id)
+              setActiveMonth(monthOf(lastWeek.id))
+            }
+          } else if (candidates.length > 0) {
+            const weekWithData = [...candidates]
+              .reverse()
+              .find((week) =>
+                selectionsData.some(
+                  (selection) => selection.weekStartDate === week.id,
+                ),
+              )
+            const initialWeekId =
+              weekWithData?.id ??
+              candidates[0]?.id ??
+              getMenuWeeks(selectionsData)[0].id
+            setActiveWeekId(initialWeekId)
+          }
+        }
+      } catch {
+        // Error silencioso: las listas quedarán vacías y el usuario verá
+        // los estados vacíos correspondientes
+      }
     }
-    return [...ids].sort()
-  }, [selections, extraWeekIds])
-
-  /** Siguiente lunes disponible del mes activo (sin tarjeta aún). */
-  const nextMondayOfMonth = useMemo(() => {
-    const mondays = listMondaysOfMonth(activeMonth)
-    const todayLocal = getTodayLocalISO()
-    const floorISO =
-      activeMonth === monthOf(todayLocal)
-        ? toMondayISO(todayLocal)
-        : ''
-    const occupied = new Set(weeks.map((week) => week.id))
-
-    return (
-      mondays.find(
-        (monday) => monday >= floorISO && !occupied.has(monday),
-      ) ??
-      mondays.find((monday) => !occupied.has(monday)) ??
-      null
-    )
-  }, [activeMonth, weeks])
-
-  const currentMonthLabel = formatMonthLabel(activeMonth)
+    void loadInitialData()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!saveError) return
@@ -201,8 +197,7 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
   }, [autoFillNotice])
 
   const activeWeek =
-    monthWeeks.find((week) => week.id === activeWeekId) ??
-    monthWeeks[0] ??
+    weeks.find((week) => week.id === activeWeekId) ??
     weeks[0]
 
   const weekStats = useMemo(
@@ -232,16 +227,20 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
   const activeSelections = useMemo(
     () =>
       selections.filter(
-        (selection) => selection.weekStartDate === activeWeek.id,
+        (selection) => selection.weekStartDate === activeWeek?.id,
       ),
-    [selections, activeWeek.id],
+    [selections, activeWeek?.id],
   )
 
-  const activeStats = weekStats.get(activeWeek.id) ?? {
+  const activeStats = weekStats.get(activeWeek?.id) ?? {
     filled: 0,
     duplicateCells: 0,
   }
   const emptyCells = Math.max(0, TOTAL_WEEK_CELLS - activeStats.filled)
+
+  async function refreshSelections() {
+    setSelections(await menuPlanRepository.list())
+  }
 
   async function handleAutoFill() {
     if (isAutoFilling) return
@@ -252,7 +251,7 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
 
     try {
       const result = await autoFillWeekUseCase.execute(activeWeek.id)
-      setSelections(menuPlanRepository.listSnapshot())
+      await refreshSelections()
 
       if (result.unfilled === 0) {
         setAutoFillNotice({
@@ -308,7 +307,18 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
       )
 
       return dishId
-        ? [...next, { weekStartDate, day, category, slot, dishId, serviceType: 'lunch' as const, isActive: true }]
+        ? [
+            ...next,
+            {
+              weekStartDate,
+              day,
+              category,
+              slot,
+              dishId,
+              serviceType: 'lunch' as const,
+              isActive: true,
+            },
+          ]
         : next
     })
     setSaveError(null)
@@ -326,10 +336,6 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
           'No se pudo guardar la selección. Inténtalo de nuevo.',
         )
       })
-  }
-
-  function refreshSelections() {
-    setSelections(menuPlanRepository.listSnapshot())
   }
 
   function rememberWeek(weekStartDate: string) {
@@ -361,7 +367,7 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
       const result = await duplicateMenuWeekUseCase.execute({
         activeWeekStartDate: activeWeek.id,
       })
-      refreshSelections()
+      await refreshSelections()
       rememberWeek(result.targetWeekStartDate)
       activateWeek(result.targetWeekStartDate)
       setSaveError(null)
@@ -384,7 +390,7 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
       const result = await createMenuWeekUseCase.execute({
         referenceDate: weekStartDate,
       })
-      refreshSelections()
+      await refreshSelections()
       rememberWeek(result.weekStartDate)
       activateWeek(result.weekStartDate)
       setSaveError(null)
@@ -406,7 +412,7 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
         sourceWeekStartDate,
         targetWeekStartDate,
       })
-      refreshSelections()
+      await refreshSelections()
       rememberWeek(result.targetWeekStartDate)
       activateWeek(result.targetWeekStartDate)
       setSaveError(null)
@@ -418,6 +424,45 @@ export function MenuConstructor({ onOpenCatalog }: MenuConstructorProps) {
       )
     }
   }
+
+  /** Solo las semanas del mes activo, ordenadas por weekStartDate ASC. */
+  const monthWeeks = useMemo(
+    () =>
+      weeks
+        .filter((week) => week.id.startsWith(activeMonth))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    [weeks, activeMonth],
+  )
+
+  /** Semanas que existen realmente (con celdas o creadas vacías). */
+  const existingWeeks = useMemo(() => {
+    const ids = new Set(extraWeekIds)
+    for (const selection of selections) {
+      ids.add(selection.weekStartDate)
+    }
+    return [...ids].sort()
+  }, [selections, extraWeekIds])
+
+  /** Siguiente lunes disponible del mes activo (sin tarjeta aún). */
+  const nextMondayOfMonth = useMemo(() => {
+    const mondays = listMondaysOfMonth(activeMonth)
+    const todayLocal = getTodayLocalISO()
+    const floorISO =
+      activeMonth === monthOf(todayLocal)
+        ? toMondayISO(todayLocal)
+        : ''
+    const occupied = new Set(weeks.map((week) => week.id))
+
+    return (
+      mondays.find(
+        (monday) => monday >= floorISO && !occupied.has(monday),
+      ) ??
+      mondays.find((monday) => !occupied.has(monday)) ??
+      null
+    )
+  }, [activeMonth, weeks])
+
+  const currentMonthLabel = formatMonthLabel(activeMonth)
 
   return (
     <div className="space-y-4">

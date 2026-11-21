@@ -45,6 +45,17 @@ export class SupabaseDishRepository extends SupabaseRepositoryBase implements Di
     return (data ?? []).map(mapRowToDish)
   }
 
+  async listAll(): Promise<Dish[]> {
+    const { data, error } = await this.client
+      .from('dishes')
+      .select('*')
+      .order('category', { ascending: true })
+      .order('name', { ascending: true })
+
+    if (error) this.handleError(error, 'listar todos los platos')
+    return (data ?? []).map(mapRowToDish)
+  }
+
   async getById(id: string): Promise<Dish | null> {
     const { data, error } = await this.client
       .from('dishes')

@@ -3,6 +3,7 @@ import {
   Boxes,
   CheckCircle2,
   Database,
+  Loader2,
   Upload,
   X,
 } from 'lucide-react'
@@ -27,12 +28,46 @@ const SECTIONS = [
 ] as const
 
 export function InventoryManagement() {
-  const [ingredients, setIngredients] = useState<Ingredient[]>(() =>
-    ingredientRepository.listSnapshot(),
-  )
-  const [activeSection, setActiveSection] =
-    useState<InventorySection>('import')
+  const [ingredients, setIngredients] = useState<Ingredient[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [activeSection, setActiveSection] = useState<InventorySection>('import')
   const [toast, setToast] = useState<string | null>(null)
+
+  // Cargar ingredientes al montar el componente
+  useEffect(() => {
+    let mounted = true
+
+    async function loadIngredients() {
+      setIsLoading(true)
+      setError(null)
+      try {
+        const data = await ingredientRepository.list()
+        if (mounted) {
+          setIngredients(data)
+        }
+      } catch (err) {
+        if (mounted) {
+          const message =
+            err instanceof Error
+              ? err.message
+              : 'Error desconocido al cargar el inventario'
+          setError(message)
+          setIngredients([])
+        }
+      } finally {
+        if (mounted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    loadIngredients()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!toast) return
@@ -41,12 +76,26 @@ export function InventoryManagement() {
     return () => window.clearTimeout(timeout)
   }, [toast])
 
-  function handleImported(count: number) {
-    setIngredients(ingredientRepository.listSnapshot())
-    setToast(
-      `Se ${count === 1 ? 'importó 1 producto' : `importaron ${count} productos`} correctamente.`,
-    )
-    setActiveSection('current')
+  async function handleImported(count: number) {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const data = await ingredientRepository.list()
+      setIngredients(data)
+      setToast(
+        `Se ${count === 1 ? 'importó 1 producto' : `importaron ${count} productos`} correctamente.`,
+      )
+      setActiveSection('current')
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Error al actualizar el inventario tras la importación'
+      setError(message)
+      setToast(`Error: ${message}`)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const activeCount = ingredients.filter(
@@ -111,6 +160,26 @@ export function InventoryManagement() {
         </div>
       )}
 
+      {error && (
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-800 ring-1 ring-inset ring-red-200"
+        >
+          <span className="mt-0.5 size-4 shrink-0" aria-hidden="true">
+            ⚠
+          </span>
+          <p className="flex-1">{error}</p>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            aria-label="Cerrar error"
+            className="rounded p-0.5 opacity-60 transition-opacity hover:opacity-100"
+          >
+            <X className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
       <div
         role="tablist"
         aria-label="Secciones de inventario"
@@ -147,7 +216,21 @@ export function InventoryManagement() {
             onImported={handleImported}
           />
         ) : (
-          <InventoryTable ingredients={ingredients} />
+          <div className="space-y-3">
+            {isLoading ? (
+              <div className="flex flex-col items-center px-6 py-12 text-center">
+                <Loader2 className="size-8 animate-spin text-brand-600" aria-hidden="true" />
+                <p className="mt-3 text-sm font-medium text-slate-900">
+                  Cargando inventario…
+                </p>
+                <p className="mt-1 max-w-xs text-xs text-slate-500">
+                  Consultando productos en Supabase.
+                </p>
+              </div>
+            ) : (
+              <InventoryTable ingredients={ingredients} />
+            )}
+          </div>
         )}
       </div>
     </div>

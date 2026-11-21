@@ -47,11 +47,16 @@ it('detecta los bloques semanales', async () => {
     const { anual } = await loadSheets()
     const result = parseMenuPlanSheet(anual.rows, context)
 
-    // NOTA: El fixture actual no extrae entradas de categorías (weeks[0].entries vacío).
-    // La detección de filas de categoría funciona en el documento real.
-    // Pendiente: investigar por qué isCategoryRow no coincide en el fixture.
+    // El fixture ahora extrae correctamente las entradas de categorías
+    // (fix: las filas de categoría tienen platos en la misma fila, columnas B-F)
     expect(result.stats.normalizedDates).toBe(10)
-    expect(result.weeks[0].entries.length).toBe(0)
+    expect(result.weeks[0].entries.length).toBe(35) // 7 categorías × 5 días
+    // Verificar que las entradas tienen trazabilidad F.7
+    for (const entry of result.weeks[0].entries) {
+      expect(entry.sourceCell).toBeDefined()
+      expect(entry.sourceSheet).toBeDefined()
+      expect(entry.sourceFile).toBeDefined()
+    }
   })
 
   it('registra cada #REF! como ERROR con ubicación sin bloquear filas válidas', async () => {

@@ -12,6 +12,7 @@ export interface DishInput {
 export interface DishRepository {
   listSnapshot(): Dish[]
   list(): Promise<Dish[]>
+  listAll(): Promise<Dish[]>
   save(input: DishInput): Promise<Dish>
   remove(id: string): Promise<void>
   importMany(dishes: NewDish[]): Promise<Dish[]>

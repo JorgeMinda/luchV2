@@ -4,6 +4,7 @@ export type { NewMealCompositionTemplate, NewMealCompositionComponent }
 
 export interface MealCompositionRepository {
   list(): Promise<MealCompositionTemplate[]>
+  listAll(): Promise<MealCompositionTemplate[]>
   listSnapshot(): MealCompositionTemplate[]
   getById(id: string): Promise<MealCompositionTemplate | null>
   saveMany(templates: NewMealCompositionTemplate[]): Promise<MealCompositionTemplate[]>

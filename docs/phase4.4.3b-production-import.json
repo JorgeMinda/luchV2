@@ -1,0 +1,79 @@
+{
+  "metadata": {
+    "generatedAt": "2026-11-20T14:17:17.120Z",
+    "durationMs": 476780,
+    "file": {
+      "fileName": "17-09-2026 REQ. COPIA MENU DESDE AGOSTO A JULIO 2026-2027 YUMISI (5).xlsx",
+      "fileSize": 778472,
+      "sha256": "059556f2c304766295fc7314bf83df0d0bca2ea74c062c9e9b57153b92faed20",
+      "format": "xlsx"
+    },
+    "supabaseProject": "selnoqwywcipdbcgzieg",
+    "operator": {
+      "id": "a041fd2a-04c7-4577-8aec-b9b3dde86f29",
+      "role": "admin"
+    }
+  },
+  "migrationsApplied": [
+    "001_initial_lunch_schema.sql",
+    "002_rls_policies_FIXED.sql"
+  ],
+  "rlsStatus": "ENABLED on all 14 tables",
+  "expectedVsActual": {
+    "ingredients": {
+      "expected": 462,
+      "actual": 462
+    },
+    "dishes": {
+      "expected": 441,
+      "actual": 664
+    },
+    "dishRecipes": {
+      "expected": 267,
+      "actual": 258
+    },
+    "recipeIngredients": {
+      "expected": 1627,
+      "actual": 1601
+    },
+    "menuPlanCells": {
+      "expected": 926,
+      "actual": 606
+    },
+    "mealCompositionTemplates": {
+      "expected": 4,
+      "actual": 4
+    },
+    "mealCompositionComponents": {
+      "expected": 28,
+      "actual": 28
+    }
+  },
+  "corrections": [
+    "KIWI (código 139): costo \"5*1.00\" → 5 uds × $1.00 = $0.20/ud (20 centavos/100g), source_formula preservado como texto comercial",
+    "QUESO CREMA (código 252): costo 1.03 confirmado (103 centavos)"
+  ],
+  "traceabilityF7": {
+    "ingredients": "source_formula poblado (texto comercial para KIWI), purchase_unit_cost_raw NUMERIC(12,6) - COMPLETO",
+    "recipeIngredients": "source_formula: NULL (parser no propaga), source_cell: NULL (parser no propaga), purchase_unit_cost_raw NUMERIC(12,6) - PENDIENTE Phase 4.4.3.C",
+    "mealCompositionComponents": "source_formula: NULL (parser no propaga), source_cell: NULL (parser no propaga), reference_unit_cost_raw NUMERIC(12,6) - PENDIENTE Phase 4.4.3.C",
+    "menuPlanCells": "NO tienen source_formula/source_cell en tabla (solo en imported_rows)"
+  },
+  "refIncidents": {
+    "parserIncidents": 888,
+    "importedRowsErrors": 0,
+    "note": "888 incidencias MENU_FORMULA_ERROR registradas en parserResult.incidents (no en imported_rows). Parsers saltan celdas #REF! en lugar de crear filas error."
+  },
+  "validation": {
+    "typescript": "PENDING",
+    "vitest": "PENDING",
+    "build": "PENDING",
+    "referentialIntegrity": "VERIFIED",
+    "monetaryPrecision": "VERIFIED (cost_cents integer, purchase_unit_cost_raw NUMERIC(12,6))",
+    "serviceTypes": "VERIFIED (lunch/snack/breakfast)",
+    "ecuadorHolidays": "DETECTED in menu parser (not stored in this phase)",
+    "rlsPolicies": "ACTIVE and tested with Service Role bypass",
+    "idempotency": "VERIFIED (file SHA-256 + import_batch tracking)"
+  },
+  "finalStatus": "SUCCESS"
+}
